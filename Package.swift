@@ -17,6 +17,9 @@ let package = Package(
             path: "Sources/PeakHalo",
             resources: [
                 .process("Resources")
+            ],
+            linkerSettings: [
+                .linkedFramework("IOBluetooth")
             ]
         )
     ]

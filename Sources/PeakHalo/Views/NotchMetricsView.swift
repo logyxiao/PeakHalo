@@ -83,6 +83,9 @@ struct NotchMetricsView: View {
                     )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            case .battery:
+                BatteryDevicesView(compact: true)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             case .audio:
                 AudioControlsView(compact: true)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
