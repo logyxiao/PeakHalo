@@ -32,6 +32,7 @@ struct AudioAppVolumeSettings: Codable, Equatable {
     var volume: Double
     var isMuted: Bool
     var boost: Double
+    var outputDeviceUID: String?
     var isPinned: Bool
     var isIgnored: Bool
 
@@ -39,6 +40,7 @@ struct AudioAppVolumeSettings: Codable, Equatable {
         volume: 100,
         isMuted: false,
         boost: AudioBoostLevel.x1.rawValue,
+        outputDeviceUID: nil,
         isPinned: false,
         isIgnored: false
     )
@@ -49,11 +51,14 @@ struct AudioAppVolumeItem: Identifiable {
     let name: String
     let bundleIdentifier: String?
     let processID: pid_t?
+    let audioProcessObjectIDs: [AudioObjectID]
     let icon: NSImage?
     let isRunning: Bool
+    let isAudible: Bool
     var volume: Double
     var isMuted: Bool
     var boost: AudioBoostLevel
+    var outputDeviceUID: String?
     var isPinned: Bool
     var isIgnored: Bool
 }
@@ -61,4 +66,17 @@ struct AudioAppVolumeItem: Identifiable {
 enum AudioCaptureSupportState: Equatable {
     case available
     case unsupported(String)
+}
+
+struct AudioProcessInfo: Equatable {
+    let objectID: AudioObjectID
+    let processID: pid_t
+    let bundleIdentifier: String?
+    let isRunningOutput: Bool
+}
+
+struct AudioProcessTapResult {
+    let itemID: String
+    let success: Bool
+    let message: String?
 }

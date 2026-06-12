@@ -5,300 +5,285 @@ struct AudioControlsView: View {
     let compact: Bool
     @ObservedObject private var store = AudioControlStore.shared
 
-    private var defaultDevice: AudioOutputDevice? {
-        store.defaultOutputDevice
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: compact ? 8 : 12) {
-            header
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                outputDeviceList
+                sectionDivider
+                appsHeader
+                appList
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: compact ? 8 : 12) {
-                    defaultOutputCard
-                    outputDevicesSection
-                    appVolumeSection
+                if let message = store.lastMessage {
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(secondaryColor)
+                        .lineLimit(2)
+                        .padding(.top, 6)
                 }
             }
-            .frame(maxHeight: compact ? 230 : nil)
-
-            if let message = store.lastMessage {
-                Text(message)
-                    .font(.caption2)
-                    .foregroundStyle(secondaryColor)
-                    .lineLimit(2)
-            }
+            .padding(.horizontal, compact ? 4 : 0)
+            .padding(.vertical, compact ? 2 : 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(compact ? 10 : 0)
-        .background {
-            if compact {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.white.opacity(0.08))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.white.opacity(0.13), lineWidth: 1)
-                    )
-            }
-        }
+        .frame(maxWidth: .infinity, maxHeight: compact ? 246 : nil, alignment: .topLeading)
         .onAppear {
-            store.refreshIfNeeded()
+            store.startMonitoring()
         }
-    }
-
-    private var header: some View {
-        HStack {
-            Label("Audio", systemImage: "speaker.wave.2")
-                .font(compact ? .caption.weight(.semibold) : .headline)
-                .foregroundStyle(primaryColor)
-
-            Spacer()
-
-            Button {
-                store.refresh()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: compact ? 11 : 13, weight: .semibold))
-                    .frame(width: compact ? 24 : 28, height: compact ? 22 : 26)
-            }
-            .buttonStyle(.plain)
-            .disabled(store.isRefreshing)
-            .foregroundStyle(primaryColor.opacity(store.isRefreshing ? 0.35 : 0.85))
-            .background(controlButtonBackground, in: RoundedRectangle(cornerRadius: 7))
-            .help("Refresh Audio")
+        .onDisappear {
+            store.stopMonitoring()
         }
     }
 
     @ViewBuilder
-    private var defaultOutputCard: some View {
-        if let defaultDevice {
-            VStack(alignment: .leading, spacing: compact ? 7 : 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: defaultDevice.isMuted ? "speaker.slash" : "speaker.wave.2")
-                        .foregroundStyle(.green)
-                        .frame(width: compact ? 18 : 24)
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("System Volume")
-                            .font(compact ? .caption.weight(.semibold) : .callout.weight(.semibold))
-                            .foregroundStyle(primaryColor)
-
-                        Text(defaultDevice.name)
-                            .font(.caption2)
-                            .foregroundStyle(secondaryColor)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    Button {
-                        store.setDeviceMuted(!defaultDevice.isMuted, deviceID: defaultDevice.id)
-                    } label: {
-                        Image(systemName: defaultDevice.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                            .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!defaultDevice.supportsMute)
-                    .foregroundStyle(defaultDevice.supportsMute ? .green : secondaryColor)
-                    .background(controlButtonBackground, in: RoundedRectangle(cornerRadius: 7))
-                    .help(defaultDevice.isMuted ? "Unmute" : "Mute")
-                }
-
-                AudioSlider(
-                    value: defaultDevice.volume,
-                    isEnabled: defaultDevice.supportsVolume,
-                    tint: .green,
-                    primaryColor: primaryColor,
-                    secondaryColor: secondaryColor,
-                    onChange: { store.setDeviceVolume($0, deviceID: defaultDevice.id) }
-                )
-            }
-            .padding(compact ? 8 : 14)
-            .background(panelBackground)
-        } else {
+    private var outputDeviceList: some View {
+        if store.outputDevices.isEmpty {
             Text(store.isRefreshing ? "Scanning Audio" : "No output devices found.")
                 .font(compact ? .caption : .callout)
                 .foregroundStyle(secondaryColor)
                 .frame(maxWidth: .infinity, minHeight: compact ? 64 : 110, alignment: .center)
-                .background(panelBackground)
-        }
-    }
-
-    private var outputDevicesSection: some View {
-        VStack(alignment: .leading, spacing: compact ? 6 : 8) {
-            sectionTitle("Output Devices", systemImage: "hifispeaker.2")
-
-            LazyVGrid(columns: deviceColumns, spacing: compact ? 7 : 10) {
-                ForEach(store.outputDevices) { device in
-                    outputDeviceCard(device)
+        } else {
+            VStack(spacing: compact ? 3 : 5) {
+                ForEach(store.outputDevices.prefix(compact ? 4 : 8)) { device in
+                    outputDeviceRow(device)
                 }
             }
         }
     }
 
-    private func outputDeviceCard(_ device: AudioOutputDevice) -> some View {
-        Button {
-            if !device.isDefault {
-                store.setDefaultOutputDevice(device.id)
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    Image(systemName: device.isDefault ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: compact ? 10 : 12, weight: .semibold))
-                        .foregroundStyle(device.isDefault ? .green : secondaryColor)
+    private func outputDeviceRow(_ device: AudioOutputDevice) -> some View {
+        HStack(spacing: compact ? 9 : 12) {
+            Button {
+                if !device.isDefault {
+                    store.setDefaultOutputDevice(device.id)
+                }
+            } label: {
+                HStack(spacing: compact ? 8 : 10) {
+                    Circle()
+                        .fill(device.isDefault ? Color.blue : Color.white.opacity(0.12))
+                        .frame(width: compact ? 30 : 34, height: compact ? 30 : 34)
+                        .overlay {
+                            Image(systemName: deviceIconName(for: device))
+                                .font(.system(size: compact ? 15 : 17, weight: .semibold))
+                                .foregroundStyle(device.isDefault ? .white : secondaryColor)
+                        }
 
                     Text(device.name)
-                        .font(.caption.weight(.medium))
+                        .font(compact ? .caption.weight(.semibold) : .callout.weight(.semibold))
                         .foregroundStyle(primaryColor)
                         .lineLimit(1)
-                }
-
-                HStack {
-                    Text(device.transportName)
-                        .font(.caption2)
-                        .foregroundStyle(secondaryColor)
-
-                    Spacer()
-
-                    Text(device.supportsVolume ? "\(Int(device.volume.rounded()))%" : "--")
-                        .font(.caption2.weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(device.supportsVolume ? .green : secondaryColor)
+                        .frame(width: compact ? 176 : 230, alignment: .leading)
                 }
             }
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                if device.isDefault {
-                    selectedPanelBackground
-                } else {
-                    panelBackground
-                }
+            .buttonStyle(.plain)
+            .help(device.isDefault ? "Default Output" : "Set as Output")
+
+            iconButton(
+                systemImage: device.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                isActive: device.isMuted,
+                isEnabled: device.supportsMute,
+                activeColor: .red,
+                help: device.isMuted ? "Unmute" : "Mute"
+            ) {
+                store.setDeviceMuted(!device.isMuted, deviceID: device.id)
             }
+
+            AudioSlider(
+                value: device.volume,
+                isEnabled: device.supportsVolume,
+                tint: .blue,
+                primaryColor: primaryColor,
+                secondaryColor: secondaryColor,
+                onChange: { store.setDeviceVolume($0, deviceID: device.id) }
+            )
+            .layoutPriority(1)
         }
-        .buttonStyle(.plain)
-        .help(device.isDefault ? "Default Output" : "Set as Output")
+        .frame(maxWidth: .infinity, minHeight: compact ? 39 : 44, maxHeight: compact ? 39 : 44)
+        .contentShape(Rectangle())
     }
 
-    private var appVolumeSection: some View {
-        VStack(alignment: .leading, spacing: compact ? 6 : 8) {
-            sectionTitle("App Volume", systemImage: "app.badge")
+    private var sectionDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(compact ? 0.16 : 0.12))
+            .frame(height: 1)
+            .padding(.vertical, compact ? 8 : 12)
+    }
 
-            switch store.captureSupport {
-            case .available:
-                Text("Per-app processing needs Screen & System Audio Recording permission; current values are saved as app profiles.")
-                    .font(.caption2)
-                    .foregroundStyle(secondaryColor)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button {
-                    openAudioPrivacySettings()
-                } label: {
-                    Label("Open System Settings", systemImage: "gearshape")
-                        .font(.caption2.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(primaryColor.opacity(0.85))
-                .padding(.vertical, 5)
-                .background(controlButtonBackground, in: RoundedRectangle(cornerRadius: 7))
-            case .unsupported(let reason):
-                Text(reason)
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+    private var appsHeader: some View {
+        Text("Apps")
+            .font(.system(size: compact ? 11 : 12, weight: .bold))
+            .textCase(.uppercase)
+            .foregroundStyle(secondaryColor)
+            .padding(.bottom, compact ? 5 : 8)
+    }
 
+    @ViewBuilder
+    private var appList: some View {
+        switch store.captureSupport {
+        case .available:
             if store.appItems.isEmpty {
                 Text("No running apps found.")
                     .font(.caption)
                     .foregroundStyle(secondaryColor)
-                    .frame(maxWidth: .infinity, minHeight: compact ? 52 : 86, alignment: .center)
-                    .background(panelBackground)
+                    .frame(maxWidth: .infinity, minHeight: compact ? 50 : 80, alignment: .center)
             } else {
-                VStack(spacing: compact ? 6 : 8) {
-                    ForEach(store.appItems.prefix(compact ? 5 : 12)) { item in
+                VStack(spacing: compact ? 4 : 6) {
+                    ForEach(store.appItems.prefix(compact ? 4 : 12)) { item in
                         appVolumeRow(item)
                     }
                 }
             }
+        case .unsupported(let reason):
+            Text(reason)
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private func appVolumeRow(_ item: AudioAppVolumeItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                appIcon(item.icon)
+        HStack(spacing: compact ? 8 : 10) {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(secondaryColor.opacity(0.55))
+                .frame(width: compact ? 12 : 16)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(item.name)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(item.isIgnored ? secondaryColor : primaryColor)
-                        .lineLimit(1)
+            appIcon(item.icon)
 
-                    Text(item.isRunning ? "Running" : "Pinned")
-                        .font(.caption2)
-                        .foregroundStyle(secondaryColor)
-                }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.name)
+                    .font(compact ? .caption.weight(.semibold) : .callout.weight(.semibold))
+                    .foregroundStyle(item.isIgnored ? secondaryColor : primaryColor)
+                    .lineLimit(1)
 
-                Spacer()
+                Text(appSubtitle(for: item))
+                    .font(.caption2)
+                    .foregroundStyle(secondaryColor)
+                    .lineLimit(1)
+            }
+            .frame(width: compact ? 116 : 170, alignment: .leading)
 
-                appActionButton(
-                    systemImage: item.isMuted ? "speaker.slash.fill" : "speaker.wave.2",
-                    isActive: item.isMuted,
-                    help: item.isMuted ? "Unmute App" : "Mute App"
-                ) {
-                    store.setAppMuted(!item.isMuted, itemID: item.id)
-                }
-
-                Menu {
-                    ForEach(AudioBoostLevel.allCases) { level in
-                        Button(level.title) {
-                            store.setAppBoost(level, itemID: item.id)
-                        }
-                    }
-                } label: {
-                    Text(item.boost.title)
-                        .font(.caption2.weight(.semibold))
-                        .frame(width: 28, height: 22)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("Boost")
-
-                appActionButton(
-                    systemImage: item.isPinned ? "pin.fill" : "pin",
-                    isActive: item.isPinned,
-                    help: item.isPinned ? "Unpin App" : "Pin App"
-                ) {
-                    store.togglePinned(itemID: item.id)
-                }
-
-                appActionButton(
-                    systemImage: item.isIgnored ? "eye.slash.fill" : "eye",
-                    isActive: item.isIgnored,
-                    help: item.isIgnored ? "Include App" : "Ignore App"
-                ) {
-                    store.toggleIgnored(itemID: item.id)
-                }
+            iconButton(
+                systemImage: item.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                isActive: item.isMuted,
+                isEnabled: !item.isIgnored,
+                activeColor: .red,
+                help: item.isMuted ? "Unmute App" : "Mute App"
+            ) {
+                store.setAppMuted(!item.isMuted, itemID: item.id)
             }
 
             AudioSlider(
                 value: item.volume,
                 isEnabled: !item.isIgnored,
-                tint: .cyan,
+                tint: .blue,
                 primaryColor: primaryColor,
                 secondaryColor: secondaryColor,
                 onChange: { store.setAppVolume($0, itemID: item.id) }
             )
+            .layoutPriority(1)
+
+            boostMenu(item)
+            playbackDeviceMenu(item)
+            processingButton(item)
         }
-        .padding(8)
-        .background {
-            if item.isIgnored {
-                mutedPanelBackground
-            } else {
-                panelBackground
+        .frame(maxWidth: .infinity, minHeight: compact ? 45 : 50, maxHeight: compact ? 45 : 50)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(item.isPinned ? "Unpin App" : "Pin App") {
+                store.togglePinned(itemID: item.id)
+            }
+            Button(item.isIgnored ? "Include App" : "Ignore App") {
+                store.toggleIgnored(itemID: item.id)
+            }
+            Button("Open System Settings") {
+                openAudioPrivacySettings()
             }
         }
+    }
+
+    private func boostMenu(_ item: AudioAppVolumeItem) -> some View {
+        Menu {
+            ForEach(AudioBoostLevel.allCases) { level in
+                Button {
+                    store.setAppBoost(level, itemID: item.id)
+                } label: {
+                    Label(level.title, systemImage: item.boost == level ? "checkmark" : "circle")
+                }
+            }
+        } label: {
+            Image(systemName: "chevron.up.2")
+                .font(.system(size: compact ? 12 : 14, weight: .bold))
+                .frame(width: compact ? 22 : 24, height: compact ? 22 : 24)
+                .foregroundStyle(item.boost == .x1 ? secondaryColor : .blue)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(item.isIgnored)
+        .help("Boost")
+    }
+
+    private func playbackDeviceMenu(_ item: AudioAppVolumeItem) -> some View {
+        Menu {
+            Button {
+                store.setAppOutputDevice(nil, itemID: item.id)
+            } label: {
+                Label("System Default", systemImage: item.outputDeviceUID == nil ? "checkmark" : "circle")
+            }
+
+            Divider()
+
+            ForEach(store.outputDevices) { device in
+                Button {
+                    store.setAppOutputDevice(device.uid, itemID: item.id)
+                } label: {
+                    Label(device.name, systemImage: item.outputDeviceUID == device.uid ? "checkmark" : "circle")
+                }
+            }
+        } label: {
+            Image(systemName: "globe")
+                .font(.system(size: compact ? 13 : 15, weight: .semibold))
+                .frame(width: compact ? 22 : 24, height: compact ? 22 : 24)
+                .foregroundStyle(item.outputDeviceUID == nil ? secondaryColor : .blue)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(store.outputDevices.isEmpty || item.isIgnored)
+        .help("Playback Device")
+    }
+
+    private func processingButton(_ item: AudioAppVolumeItem) -> some View {
+        let isEnabled = store.isProcessingEnabled(itemID: item.id)
+
+        return Button {
+            store.toggleProcessing(itemID: item.id)
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: compact ? 12 : 14, weight: .semibold))
+                .frame(width: compact ? 22 : 24, height: compact ? 22 : 24)
+        }
+        .buttonStyle(.plain)
+        .disabled(!item.isAudible || item.isIgnored)
+        .foregroundStyle(isEnabled ? .green : primaryColor.opacity(item.isAudible && !item.isIgnored ? 0.72 : 0.28))
+        .help(isEnabled ? "Disable Processing" : "Enable Processing")
+    }
+
+    private func iconButton(
+        systemImage: String,
+        isActive: Bool,
+        isEnabled: Bool,
+        activeColor: Color,
+        help: LocalizedStringKey,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: compact ? 13 : 15, weight: .semibold))
+                .frame(width: compact ? 22 : 24, height: compact ? 22 : 24)
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .foregroundStyle(isActive ? activeColor : primaryColor.opacity(isEnabled ? 0.58 : 0.24))
+        .help(help)
     }
 
     private func openAudioPrivacySettings() {
@@ -309,10 +294,40 @@ struct AudioControlsView: View {
         NSWorkspace.shared.open(url)
     }
 
-    private func sectionTitle(_ title: LocalizedStringKey, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(secondaryColor)
+    private func appStatusText(for item: AudioAppVolumeItem) -> String {
+        if item.isAudible {
+            return store.isProcessingEnabled(itemID: item.id)
+                ? String(localized: "Processing")
+                : String(localized: "Playing")
+        }
+
+        if item.isRunning {
+            return String(localized: "Running")
+        }
+
+        return String(localized: "Pinned")
+    }
+
+    private func appSubtitle(for item: AudioAppVolumeItem) -> String {
+        "\(appStatusText(for: item)) - \(store.playbackDeviceTitle(for: item))"
+    }
+
+    private func deviceIconName(for device: AudioOutputDevice) -> String {
+        let value = "\(device.name) \(device.transportName)".lowercased()
+
+        if value.contains("bluetooth") || value.contains("airpods") || value.contains("headphone") || value.contains("huawei") {
+            return "headphones"
+        }
+
+        if value.contains("macbook") || value.contains("built") {
+            return "laptopcomputer"
+        }
+
+        if value.contains("display") || value.contains("hdmi") || value.contains("displayport") {
+            return "display"
+        }
+
+        return "speaker.wave.2"
     }
 
     @ViewBuilder
@@ -321,41 +336,18 @@ struct AudioControlsView: View {
             Image(nsImage: icon)
                 .resizable()
                 .scaledToFit()
-                .frame(width: compact ? 18 : 22, height: compact ? 18 : 22)
-                .cornerRadius(4)
+                .frame(width: compact ? 26 : 30, height: compact ? 26 : 30)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
         } else {
-            Image(systemName: "app")
-                .frame(width: compact ? 18 : 22, height: compact ? 18 : 22)
-                .foregroundStyle(secondaryColor)
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.white.opacity(0.10))
+                .frame(width: compact ? 26 : 30, height: compact ? 26 : 30)
+                .overlay {
+                    Image(systemName: "app")
+                        .font(.system(size: compact ? 13 : 15, weight: .semibold))
+                        .foregroundStyle(secondaryColor)
+                }
         }
-    }
-
-    private func appActionButton(
-        systemImage: String,
-        isActive: Bool,
-        help: LocalizedStringKey,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: compact ? 10 : 12, weight: .semibold))
-                .frame(width: compact ? 22 : 24, height: compact ? 22 : 24)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(isActive ? .cyan : primaryColor.opacity(0.72))
-        .background(controlButtonBackground, in: RoundedRectangle(cornerRadius: 7))
-        .help(help)
-    }
-
-    private var deviceColumns: [GridItem] {
-        if store.outputDevices.count <= 1 {
-            return [GridItem(.flexible(), spacing: compact ? 7 : 10)]
-        }
-
-        return [
-            GridItem(.flexible(), spacing: compact ? 7 : 10),
-            GridItem(.flexible(), spacing: compact ? 7 : 10)
-        ]
     }
 
     private var primaryColor: Color {
@@ -363,38 +355,7 @@ struct AudioControlsView: View {
     }
 
     private var secondaryColor: Color {
-        compact ? .white.opacity(0.55) : .secondary
-    }
-
-    private var controlButtonBackground: Color {
-        compact ? Color.white.opacity(0.08) : Color.primary.opacity(0.06)
-    }
-
-    private var panelBackground: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(compact ? Color.white.opacity(0.07) : Color.primary.opacity(0.035))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(compact ? Color.white.opacity(0.12) : Color.primary.opacity(0.06), lineWidth: 1)
-            )
-    }
-
-    private var selectedPanelBackground: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(compact ? Color.green.opacity(0.18) : Color.green.opacity(0.10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.green.opacity(0.32), lineWidth: 1)
-            )
-    }
-
-    private var mutedPanelBackground: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(compact ? Color.white.opacity(0.04) : Color.primary.opacity(0.02))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(compact ? Color.white.opacity(0.08) : Color.primary.opacity(0.04), lineWidth: 1)
-            )
+        compact ? .white.opacity(0.56) : .secondary
     }
 }
 
@@ -407,7 +368,7 @@ private struct AudioSlider: View {
     let onChange: (Double) -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 9) {
             Slider(
                 value: Binding(
                     get: { value },
@@ -419,10 +380,10 @@ private struct AudioSlider: View {
             .disabled(!isEnabled)
 
             Text(isEnabled ? "\(Int(value.rounded()))%" : "--")
-                .font(.caption2.weight(.semibold))
+                .font(.caption.weight(.semibold))
                 .monospacedDigit()
-                .foregroundStyle(isEnabled ? tint : secondaryColor)
-                .frame(width: 36, alignment: .trailing)
+                .foregroundStyle(isEnabled ? primaryColor.opacity(0.72) : secondaryColor)
+                .frame(width: 42, alignment: .trailing)
         }
     }
 }

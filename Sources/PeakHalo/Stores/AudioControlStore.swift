@@ -8,14 +8,18 @@ final class AudioControlStore: ObservableObject {
 
     @Published private(set) var outputDevices: [AudioOutputDevice] = []
     @Published private(set) var appItems: [AudioAppVolumeItem] = []
+    @Published private(set) var processingAppIDs: Set<String> = []
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastMessage: String?
     @Published private(set) var captureSupport: AudioCaptureSupportState = .available
 
     private let service = SystemAudioVolumeService()
+    private let processService = AudioProcessService()
+    private let processTapService = AudioProcessTapService()
     private let worker = AudioControlWorker()
     private let defaults: UserDefaults
     private var hasLoaded = false
+    private var monitorTask: Task<Void, Never>?
 
     var defaultOutputDevice: AudioOutputDevice? {
         outputDevices.first { $0.isDefault }
@@ -31,18 +35,50 @@ final class AudioControlStore: ObservableObject {
         refresh()
     }
 
+    func startMonitoring() {
+        refreshIfNeeded()
+        processService.startMonitoring { [weak self] in
+            Task { @MainActor in
+                self?.refresh()
+            }
+        }
+
+        guard monitorTask == nil else { return }
+
+        monitorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                await MainActor.run {
+                    self?.refresh()
+                }
+            }
+        }
+    }
+
+    func stopMonitoring() {
+        processService.stopMonitoring()
+        monitorTask?.cancel()
+        monitorTask = nil
+    }
+
+    func shutdown() {
+        stopMonitoring()
+        processTapService.deactivateAll()
+        processingAppIDs.removeAll()
+    }
+
     func refresh() {
         guard !isRefreshing else { return }
 
         isRefreshing = true
-        worker.refresh(service: service) { [weak self] devices in
+        worker.refresh(service: service, processService: processService) { [weak self] result in
             Task { @MainActor in
                 guard let self else { return }
                 self.hasLoaded = true
-                self.outputDevices = devices
-                self.refreshAppItems()
+                self.outputDevices = result.devices
+                self.refreshAppItems(audioProcesses: result.audioProcesses)
                 self.isRefreshing = false
-                self.lastMessage = devices.isEmpty ? String(localized: "No output devices found.") : nil
+                self.lastMessage = result.devices.isEmpty ? String(localized: "No output devices found.") : nil
             }
         }
     }
@@ -67,12 +103,15 @@ final class AudioControlStore: ObservableObject {
 
         let clamped = Self.clamp(value)
         outputDevices[index].volume = clamped
-        let success = service.setDeviceVolume(clamped, deviceID: deviceID)
-        if !success {
-            outputDevices[index].volume = service.outputDevices().first { $0.id == deviceID }?.volume ?? outputDevices[index].volume
-            lastMessage = String(localized: "Output device volume is unavailable.")
-        } else {
-            lastMessage = nil
+
+        worker.setDeviceVolume(
+            clamped,
+            deviceID: deviceID,
+            service: service
+        ) { [weak self] result in
+            Task { @MainActor in
+                self?.applyDeviceVolumeWrite(result)
+            }
         }
     }
 
@@ -95,17 +134,62 @@ final class AudioControlStore: ObservableObject {
         updateAppItem(itemID) { item in
             item.volume = Self.clamp(value)
         }
+        updateProcessingState(itemID: itemID)
     }
 
     func setAppMuted(_ isMuted: Bool, itemID: String) {
         updateAppItem(itemID) { item in
             item.isMuted = isMuted
         }
+        updateProcessingState(itemID: itemID)
     }
 
     func setAppBoost(_ boost: AudioBoostLevel, itemID: String) {
         updateAppItem(itemID) { item in
             item.boost = boost
+        }
+        updateProcessingState(itemID: itemID)
+    }
+
+    func setAppOutputDevice(_ outputDeviceUID: String?, itemID: String) {
+        updateAppItem(itemID) { item in
+            item.outputDeviceUID = outputDeviceUID
+        }
+
+        guard processingAppIDs.contains(itemID) else { return }
+        restartProcessing(itemID: itemID)
+    }
+
+    func playbackDeviceTitle(for item: AudioAppVolumeItem) -> String {
+        guard let uid = item.outputDeviceUID else {
+            return String(localized: "System Default")
+        }
+
+        return outputDevices.first { $0.uid == uid }?.name ?? String(localized: "Unknown Output")
+    }
+
+    func isProcessingEnabled(itemID: String) -> Bool {
+        processingAppIDs.contains(itemID)
+    }
+
+    func toggleProcessing(itemID: String) {
+        if processingAppIDs.contains(itemID) {
+            deactivateProcessing(itemID: itemID)
+            return
+        }
+
+        guard let item = appItems.first(where: { $0.id == itemID }) else { return }
+        processTapService.activate(
+            itemID: itemID,
+            processObjectIDs: item.audioProcessObjectIDs,
+            outputDeviceUID: resolvedOutputDeviceUID(for: item),
+            volume: item.volume,
+            isMuted: item.isMuted,
+            boost: item.boost
+        ) { [weak self] result in
+            Task { @MainActor in
+                self?.applyTapResult(result, enabling: true)
+            }
         }
     }
 
@@ -113,7 +197,7 @@ final class AudioControlStore: ObservableObject {
         updateAppItem(itemID) { item in
             item.isPinned.toggle()
         }
-        refreshAppItems()
+        refresh()
     }
 
     func toggleIgnored(itemID: String) {
@@ -133,7 +217,11 @@ final class AudioControlStore: ObservableObject {
         lastMessage = String(localized: "Per-app volume settings are saved locally until audio capture is enabled.")
     }
 
-    private func refreshAppItems() {
+    private func refreshAppItems(audioProcesses: [AudioProcessInfo]) {
+        let previousItems = Dictionary(
+            appItems.map { ($0.id, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
         let runningApps = NSWorkspace.shared.runningApplications
             .filter { app in
                 app.activationPolicy == .regular
@@ -144,7 +232,38 @@ final class AudioControlStore: ObservableObject {
                 ($0.localizedName ?? "") < ($1.localizedName ?? "")
             }
 
-        var items = runningApps.map(audioItem(for:))
+        let appsByPID = Dictionary(uniqueKeysWithValues: runningApps.map { ($0.processIdentifier, $0) })
+        let appsByBundleID = Dictionary(
+            runningApps.compactMap { app -> (String, NSRunningApplication)? in
+                guard let bundleIdentifier = app.bundleIdentifier else { return nil }
+                return (bundleIdentifier, app)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        var groupedAudioProcesses: [String: [AudioProcessInfo]] = [:]
+        var representativeApps: [String: NSRunningApplication] = [:]
+
+        for process in audioProcesses {
+            let app = appsByPID[process.processID]
+                ?? process.bundleIdentifier.flatMap { appsByBundleID[$0] }
+            let id = app.map(storageID(for:))
+                ?? process.bundleIdentifier.map { "bundle.\($0)" }
+                ?? "process.\(process.processID)"
+
+            groupedAudioProcesses[id, default: []].append(process)
+            if let app {
+                representativeApps[id] = app
+            }
+        }
+
+        var items = groupedAudioProcesses.keys.sorted().map { id in
+            audioItem(
+                id: id,
+                app: representativeApps[id],
+                processes: groupedAudioProcesses[id] ?? []
+            )
+        }
 
         let pinnedIDs = pinnedAppIDs()
         let existingIDs = Set(items.map(\.id))
@@ -155,33 +274,54 @@ final class AudioControlStore: ObservableObject {
                 name: pinnedDisplayName(for: pinnedID),
                 bundleIdentifier: pinnedBundleIdentifier(for: pinnedID),
                 processID: nil,
+                audioProcessObjectIDs: [],
                 icon: nil,
                 isRunning: false,
+                isAudible: false,
                 volume: settings.volume,
                 isMuted: settings.isMuted,
                 boost: boostLevel(for: settings.boost),
+                outputDeviceUID: settings.outputDeviceUID,
                 isPinned: settings.isPinned,
                 isIgnored: settings.isIgnored
             ))
         }
 
+        if items.isEmpty {
+            items = runningApps.prefix(5).map(audioItem(for:))
+        }
+
         appItems = items
+        synchronizeProcessing(previousItems: previousItems, currentItems: items)
     }
 
     private func audioItem(for app: NSRunningApplication) -> AudioAppVolumeItem {
-        let id = storageID(for: app)
+        audioItem(id: storageID(for: app), app: app, processes: [])
+    }
+
+    private func audioItem(
+        id: String,
+        app: NSRunningApplication?,
+        processes: [AudioProcessInfo]
+    ) -> AudioAppVolumeItem {
         let settings = settings(for: id)
 
         return AudioAppVolumeItem(
             id: id,
-            name: app.localizedName ?? app.bundleIdentifier ?? String(localized: "Unknown App"),
-            bundleIdentifier: app.bundleIdentifier,
-            processID: app.processIdentifier,
-            icon: app.icon,
-            isRunning: true,
+            name: app?.localizedName
+                ?? app?.bundleIdentifier
+                ?? processes.first?.bundleIdentifier
+                ?? String(localized: "Audio Process"),
+            bundleIdentifier: app?.bundleIdentifier ?? processes.first?.bundleIdentifier,
+            processID: app?.processIdentifier ?? processes.first?.processID,
+            audioProcessObjectIDs: processes.map(\.objectID),
+            icon: app?.icon,
+            isRunning: app != nil,
+            isAudible: !processes.isEmpty,
             volume: settings.volume,
             isMuted: settings.isMuted,
             boost: boostLevel(for: settings.boost),
+            outputDeviceUID: settings.outputDeviceUID,
             isPinned: settings.isPinned,
             isIgnored: settings.isIgnored
         )
@@ -209,6 +349,7 @@ final class AudioControlStore: ObservableObject {
             volume: item.volume,
             isMuted: item.isMuted,
             boost: item.boost.rawValue,
+            outputDeviceUID: item.outputDeviceUID,
             isPinned: item.isPinned,
             isIgnored: item.isIgnored
         )
@@ -249,6 +390,119 @@ final class AudioControlStore: ObservableObject {
         "audio.app.settings.\(id)"
     }
 
+    private func updateProcessingState(itemID: String) {
+        guard processingAppIDs.contains(itemID),
+              let item = appItems.first(where: { $0.id == itemID }) else {
+            return
+        }
+
+        processTapService.update(
+            itemID: itemID,
+            volume: item.volume,
+            isMuted: item.isMuted,
+            boost: item.boost
+        )
+    }
+
+    private func restartProcessing(itemID: String) {
+        guard let item = appItems.first(where: { $0.id == itemID }) else { return }
+
+        processTapService.deactivate(itemID: itemID) { [weak self] result in
+            Task { @MainActor in
+                guard let self else { return }
+
+                if !result.success {
+                    self.applyTapResult(result, enabling: false)
+                    return
+                }
+
+                self.processTapService.activate(
+                    itemID: itemID,
+                    processObjectIDs: item.audioProcessObjectIDs,
+                    outputDeviceUID: self.resolvedOutputDeviceUID(for: item),
+                    volume: item.volume,
+                    isMuted: item.isMuted,
+                    boost: item.boost
+                ) { [weak self] result in
+                    Task { @MainActor in
+                        self?.applyTapResult(result, enabling: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private func deactivateProcessing(itemID: String) {
+        processTapService.deactivate(itemID: itemID) { [weak self] result in
+            Task { @MainActor in
+                self?.applyTapResult(result, enabling: false)
+            }
+        }
+    }
+
+    private func resolvedOutputDeviceUID(for item: AudioAppVolumeItem) -> String? {
+        if let outputDeviceUID = item.outputDeviceUID,
+           outputDevices.contains(where: { $0.uid == outputDeviceUID }) {
+            return outputDeviceUID
+        }
+
+        return defaultOutputDevice?.uid
+    }
+
+    private func applyTapResult(_ result: AudioProcessTapResult, enabling: Bool) {
+        if result.success {
+            if enabling {
+                processingAppIDs.insert(result.itemID)
+                lastMessage = String(localized: "Per-app audio processing is active.")
+            } else {
+                processingAppIDs.remove(result.itemID)
+                lastMessage = nil
+            }
+            return
+        }
+
+        lastMessage = result.message
+    }
+
+    private func applyDeviceVolumeWrite(_ result: AudioControlWorker.DeviceVolumeWriteResult) {
+        guard let index = outputDevices.firstIndex(where: { $0.id == result.deviceID }) else { return }
+
+        if result.success {
+            outputDevices[index].volume = result.value
+            lastMessage = nil
+            return
+        }
+
+        if let actualValue = result.actualValue {
+            outputDevices[index].volume = actualValue
+        }
+        lastMessage = String(localized: "Output device volume is unavailable.")
+    }
+
+    private func synchronizeProcessing(
+        previousItems: [String: AudioAppVolumeItem],
+        currentItems: [AudioAppVolumeItem]
+    ) {
+        let currentItemsByID = Dictionary(
+            currentItems.map { ($0.id, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
+
+        for itemID in Array(processingAppIDs) {
+            guard let item = currentItemsByID[itemID],
+                  item.isAudible,
+                  !item.isIgnored else {
+                deactivateProcessing(itemID: itemID)
+                continue
+            }
+
+            guard let previous = previousItems[itemID] else { continue }
+            if previous.audioProcessObjectIDs != item.audioProcessObjectIDs {
+                restartProcessing(itemID: itemID)
+            }
+        }
+    }
+
     private func displayNameKey(for id: String) -> String {
         "audio.app.displayName.\(id)"
     }
@@ -273,13 +527,63 @@ final class AudioControlStore: ObservableObject {
 
 private final class AudioControlWorker {
     private let queue = DispatchQueue(label: "peakhalo.audio-control", qos: .userInitiated)
+    private var pendingDeviceVolumeWrites: [AudioObjectID: Double] = [:]
+    private var deviceVolumeTimers: [AudioObjectID: DispatchWorkItem] = [:]
+    private let deviceVolumeDebounce: DispatchTimeInterval = .milliseconds(150)
+
+    struct RefreshResult {
+        let devices: [AudioOutputDevice]
+        let audioProcesses: [AudioProcessInfo]
+    }
+
+    struct DeviceVolumeWriteResult {
+        let deviceID: AudioObjectID
+        let value: Double
+        let success: Bool
+        let actualValue: Double?
+    }
 
     func refresh(
         service: SystemAudioVolumeService,
-        completion: @escaping ([AudioOutputDevice]) -> Void
+        processService: AudioProcessService,
+        completion: @escaping (RefreshResult) -> Void
     ) {
         queue.async {
-            completion(service.outputDevices())
+            completion(RefreshResult(
+                devices: service.outputDevices(),
+                audioProcesses: processService.audibleProcesses()
+            ))
+        }
+    }
+
+    func setDeviceVolume(
+        _ value: Double,
+        deviceID: AudioObjectID,
+        service: SystemAudioVolumeService,
+        completion: @escaping (DeviceVolumeWriteResult) -> Void
+    ) {
+        queue.async {
+            self.pendingDeviceVolumeWrites[deviceID] = value
+            self.deviceVolumeTimers[deviceID]?.cancel()
+
+            let timer = DispatchWorkItem { [weak self, service] in
+                guard let self,
+                      let latestValue = self.pendingDeviceVolumeWrites.removeValue(forKey: deviceID) else {
+                    return
+                }
+                self.deviceVolumeTimers.removeValue(forKey: deviceID)
+
+                let success = service.setDeviceVolume(latestValue, deviceID: deviceID)
+                let actualValue = success ? latestValue : service.outputDevices().first { $0.id == deviceID }?.volume
+                completion(DeviceVolumeWriteResult(
+                    deviceID: deviceID,
+                    value: latestValue,
+                    success: success,
+                    actualValue: actualValue
+                ))
+            }
+            self.deviceVolumeTimers[deviceID] = timer
+            self.queue.asyncAfter(deadline: .now() + self.deviceVolumeDebounce, execute: timer)
         }
     }
 }

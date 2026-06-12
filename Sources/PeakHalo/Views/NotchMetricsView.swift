@@ -41,26 +41,13 @@ struct NotchMetricsView: View {
     private var expandedContent: some View {
         VStack(spacing: 10) {
             NotchHeaderTabs(selectedTab: $selectedTab)
+                .frame(maxWidth: .infinity)
 
-            switch selectedTab {
-            case .monitor:
-                resourceGrid
-
-                ResourceExpansionPanel(
-                    resource: expandedResource,
-                    details: details(for: expandedResource),
-                    items: processItems(for: expandedResource),
-                    valueTitle: processValueTitle(for: expandedResource),
-                    value: processValueFormatter(for: expandedResource),
-                    onTerminate: { metricsService.terminate($0, force: false) },
-                    onForceTerminate: { forceQuitItem = $0 }
-                )
-            case .audio:
-                AudioControlsView(compact: true)
-            case .controls:
-                DisplayControlsView(compact: true)
-            }
+            tabContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .clipped()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(12)
         .confirmationDialog(
             Text("Force Quit App"),
@@ -74,6 +61,35 @@ struct NotchMetricsView: View {
             Button("Cancel", role: .cancel) {}
         } message: { item in
             Text(String(format: String(localized: "Force quitting %@ may lose unsaved work."), item.name))
+        }
+    }
+
+    @ViewBuilder
+    private var tabContent: some View {
+        Group {
+            switch selectedTab {
+            case .monitor:
+                VStack(spacing: 8) {
+                    resourceGrid
+
+                    ResourceExpansionPanel(
+                        resource: expandedResource,
+                        details: details(for: expandedResource),
+                        items: processItems(for: expandedResource),
+                        valueTitle: processValueTitle(for: expandedResource),
+                        value: processValueFormatter(for: expandedResource),
+                        onTerminate: { metricsService.terminate($0, force: false) },
+                        onForceTerminate: { forceQuitItem = $0 }
+                    )
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            case .audio:
+                AudioControlsView(compact: true)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            case .controls:
+                DisplayControlsView(compact: true)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
         }
     }
 

@@ -1,39 +1,96 @@
+import AudioToolbox
 import CoreAudio
+import CoreGraphics
 import Foundation
 
 final class SystemAudioVolumeService {
+    private enum DeviceVolumeBackend {
+        case hardware
+        case display(ControlledDisplay)
+        case unavailable
+
+        var supportsVolume: Bool {
+            switch self {
+            case .hardware, .display:
+                return true
+            case .unavailable:
+                return false
+            }
+        }
+
+        var unavailableReason: String? {
+            switch self {
+            case .hardware, .display:
+                return nil
+            case .unavailable:
+                return String(localized: "This output device does not expose CoreAudio or DDC/CI volume.")
+            }
+        }
+
+        var usesCoreAudioMute: Bool {
+            switch self {
+            case .hardware, .unavailable:
+                return true
+            case .display:
+                return false
+            }
+        }
+    }
+
+    private let displayControlService = DisplayControlService()
+
     func outputDevices() -> [AudioOutputDevice] {
         let defaultID = defaultOutputDeviceID()
+        let displays = displayControlService.displays()
 
         return audioDevices().filter(hasOutputStreams).map { deviceID in
-            let volume = deviceVolume(deviceID: deviceID)
-            let supportsVolume = canSetVolume(deviceID: deviceID)
-            let supportsMute = canSetMute(deviceID: deviceID)
+            let uid = stringProperty(
+                objectID: deviceID,
+                selector: kAudioDevicePropertyDeviceUID
+            ) ?? "\(deviceID)"
+            let name = stringProperty(
+                objectID: deviceID,
+                selector: kAudioObjectPropertyName
+            ) ?? String(localized: "Output Device")
+            let transportType = transportType(deviceID: deviceID)
+            let backend = volumeBackend(
+                deviceID: deviceID,
+                uid: uid,
+                name: name,
+                transportType: transportType,
+                displays: displays
+            )
+            let volume = deviceVolume(deviceID: deviceID, backend: backend)
+            let supportsVolume = backend.supportsVolume
+            let supportsMute = backend.usesCoreAudioMute && canSetMute(deviceID: deviceID)
 
             return AudioOutputDevice(
                 id: deviceID,
-                uid: stringProperty(
-                    objectID: deviceID,
-                    selector: kAudioDevicePropertyDeviceUID
-                ) ?? "\(deviceID)",
-                name: stringProperty(
-                    objectID: deviceID,
-                    selector: kAudioObjectPropertyName
-                ) ?? String(localized: "Output Device"),
-                transportName: transportName(for: transportType(deviceID: deviceID)),
+                uid: uid,
+                name: name,
+                transportName: transportName(for: transportType),
                 isDefault: deviceID == defaultID,
                 volume: volume ?? DisplayControlKind.volume.defaultValue,
-                isMuted: isMuted(deviceID: deviceID) ?? false,
+                isMuted: backend.usesCoreAudioMute ? isMuted(deviceID: deviceID) ?? false : false,
                 supportsVolume: supportsVolume,
                 supportsMute: supportsMute,
-                unavailableReason: supportsVolume ? nil : String(localized: "This output device does not expose software volume.")
+                unavailableReason: backend.unavailableReason
             )
         }
     }
 
     func outputVolume() -> Double? {
         guard let deviceID = defaultOutputDeviceID() else { return nil }
-        return deviceVolume(deviceID: deviceID)
+        let uid = stringProperty(objectID: deviceID, selector: kAudioDevicePropertyDeviceUID) ?? "\(deviceID)"
+        let name = stringProperty(objectID: deviceID, selector: kAudioObjectPropertyName) ?? String(localized: "Output Device")
+        let backend = volumeBackend(
+            deviceID: deviceID,
+            uid: uid,
+            name: name,
+            transportType: transportType(deviceID: deviceID),
+            displays: displayControlService.displays()
+        )
+        return deviceVolume(deviceID: deviceID, backend: backend)
     }
 
     func setOutputVolume(_ value: Double) -> Bool {
@@ -43,13 +100,37 @@ final class SystemAudioVolumeService {
 
     func setDeviceVolume(_ value: Double, deviceID: AudioObjectID) -> Bool {
         let scalar = Float(min(100, max(0, value)) / 100)
+        let uid = stringProperty(objectID: deviceID, selector: kAudioDevicePropertyDeviceUID) ?? "\(deviceID)"
+        let name = stringProperty(objectID: deviceID, selector: kAudioObjectPropertyName) ?? String(localized: "Output Device")
+        let backend = volumeBackend(
+            deviceID: deviceID,
+            uid: uid,
+            name: name,
+            transportType: transportType(deviceID: deviceID),
+            displays: displayControlService.displays()
+        )
 
-        if setVolume(deviceID: deviceID, element: kAudioObjectPropertyElementMain, value: scalar) {
+        switch backend {
+        case .hardware:
+            return setHardwareVolume(deviceID: deviceID, value: scalar)
+        case .display(let display):
+            return displayControlService.setValue(value, for: .volume, display: display)
+        case .unavailable:
+            return false
+        }
+    }
+
+    private func setHardwareVolume(deviceID: AudioObjectID, value: Float32) -> Bool {
+        if setVirtualMainVolume(deviceID: deviceID, value: value) {
             return true
         }
 
-        let left = setVolume(deviceID: deviceID, element: 1, value: scalar)
-        let right = setVolume(deviceID: deviceID, element: 2, value: scalar)
+        if setVolume(deviceID: deviceID, element: kAudioObjectPropertyElementMain, value: value) {
+            return true
+        }
+
+        let left = setVolume(deviceID: deviceID, element: 1, value: value)
+        let right = setVolume(deviceID: deviceID, element: 2, value: value)
         return left || right
     }
 
@@ -161,7 +242,20 @@ final class SystemAudioVolumeService {
         return size > 0
     }
 
-    private func deviceVolume(deviceID: AudioObjectID) -> Double? {
+    private func deviceVolume(deviceID: AudioObjectID, backend: DeviceVolumeBackend) -> Double? {
+        switch backend {
+        case .display(let display):
+            return display.volume
+        case .hardware, .unavailable:
+            return coreAudioVolume(deviceID: deviceID)
+        }
+    }
+
+    private func coreAudioVolume(deviceID: AudioObjectID) -> Double? {
+        if let virtualMain = virtualMainVolume(deviceID: deviceID) {
+            return virtualMain * 100
+        }
+
         if let master = volume(deviceID: deviceID, element: kAudioObjectPropertyElementMain) {
             return master * 100
         }
@@ -171,6 +265,28 @@ final class SystemAudioVolumeService {
         }
         guard !channels.isEmpty else { return nil }
         return channels.reduce(0, +) / Double(channels.count) * 100
+    }
+
+    private func virtualMainVolume(deviceID: AudioObjectID) -> Double? {
+        var value = Float32(0)
+        var size = UInt32(MemoryLayout<Float32>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        guard AudioObjectHasProperty(deviceID, &address) else { return nil }
+        let status = AudioObjectGetPropertyData(
+            deviceID,
+            &address,
+            0,
+            nil,
+            &size,
+            &value
+        )
+        guard status == noErr else { return nil }
+        return Double(min(1, max(0, value)))
     }
 
     private func volume(deviceID: AudioObjectID, element: AudioObjectPropertyElement) -> Double? {
@@ -196,7 +312,13 @@ final class SystemAudioVolumeService {
     }
 
     private func canSetVolume(deviceID: AudioObjectID) -> Bool {
-        volume(deviceID: deviceID, element: kAudioObjectPropertyElementMain) != nil
+        isSettable(
+            objectID: deviceID,
+            selector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            scope: kAudioObjectPropertyScopeOutput,
+            element: kAudioObjectPropertyElementMain
+        )
+            || volume(deviceID: deviceID, element: kAudioObjectPropertyElementMain) != nil
             && isSettable(
                 objectID: deviceID,
                 selector: kAudioDevicePropertyVolumeScalar,
@@ -212,6 +334,32 @@ final class SystemAudioVolumeService {
                         element: $0
                     )
             }
+    }
+
+    private func setVirtualMainVolume(deviceID: AudioObjectID, value: Float32) -> Bool {
+        var mutableValue = min(1, max(0, value))
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        guard AudioObjectHasProperty(deviceID, &address) else { return false }
+        var isSettable = DarwinBoolean(false)
+        guard AudioObjectIsPropertySettable(deviceID, &address, &isSettable) == noErr,
+              isSettable.boolValue else {
+            return false
+        }
+
+        let status = AudioObjectSetPropertyData(
+            deviceID,
+            &address,
+            0,
+            nil,
+            UInt32(MemoryLayout<Float32>.size),
+            &mutableValue
+        )
+        return status == noErr
     }
 
     private func setVolume(
@@ -323,6 +471,98 @@ final class SystemAudioVolumeService {
             &value
         )
         return status == noErr
+    }
+
+    private func volumeBackend(
+        deviceID: AudioObjectID,
+        uid: String,
+        name: String,
+        transportType: UInt32?,
+        displays: [ControlledDisplay]
+    ) -> DeviceVolumeBackend {
+        let ddcDisplay = matchingDDCDisplay(
+            uid: uid,
+            name: name,
+            transportType: transportType,
+            displays: displays
+        )
+
+        if isDisplayTransport(transportType), let ddcDisplay {
+            return .display(ddcDisplay)
+        }
+
+        if canSetVolume(deviceID: deviceID) {
+            return .hardware
+        }
+
+        if let ddcDisplay {
+            return .display(ddcDisplay)
+        }
+
+        return .unavailable
+    }
+
+    private func matchingDDCDisplay(
+        uid: String,
+        name: String,
+        transportType: UInt32?,
+        displays: [ControlledDisplay]
+    ) -> ControlledDisplay? {
+        let candidates = displays.filter { !$0.isBuiltIn && $0.supportsVolume }
+        guard !candidates.isEmpty else { return nil }
+
+        if let namedMatch = candidates.first(where: { displayNamesMatch(name, $0.name) }) {
+            return namedMatch
+        }
+
+        if let uidMatch = candidates.first(where: { displayIDMatchesAudioUID($0.id, uid: uid) }) {
+            return uidMatch
+        }
+
+        if candidates.count == 1, isDisplayTransport(transportType) {
+            return candidates[0]
+        }
+
+        return nil
+    }
+
+    private func displayNamesMatch(_ lhs: String, _ rhs: String) -> Bool {
+        let left = normalizedDisplayName(lhs)
+        let right = normalizedDisplayName(rhs)
+        guard !left.isEmpty, !right.isEmpty else { return false }
+        return left == right || left.contains(right) || right.contains(left)
+    }
+
+    private func normalizedDisplayName(_ value: String) -> String {
+        value
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    private func displayIDMatchesAudioUID(_ displayID: CGDirectDisplayID, uid: String) -> Bool {
+        let normalizedUID = uid.lowercased()
+        let vendor = UInt32(CGDisplayVendorNumber(displayID))
+        let model = UInt32(CGDisplayModelNumber(displayID))
+        guard vendor > 0, model > 0 else { return false }
+
+        let directPrefix = String(format: "%04x%04x", vendor, model)
+        let swappedModel = ((model & 0xff) << 8) | ((model >> 8) & 0xff)
+        let swappedPrefix = String(format: "%04x%04x", vendor, swappedModel)
+
+        return normalizedUID.hasPrefix(directPrefix) || normalizedUID.hasPrefix(swappedPrefix)
+    }
+
+    private func isDisplayTransport(_ type: UInt32?) -> Bool {
+        switch type {
+        case kAudioDeviceTransportTypeHDMI,
+             kAudioDeviceTransportTypeDisplayPort,
+             kAudioDeviceTransportTypeThunderbolt:
+            return true
+        default:
+            return false
+        }
     }
 
     private func stringProperty(

@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         NotchWindowManager.shared.hide()
+        AudioControlStore.shared.shutdown()
         SystemMetricsService.shared.stop()
     }
 

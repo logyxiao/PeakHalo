@@ -10,125 +10,92 @@ struct DisplayControlsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: compact ? 8 : 12) {
-            header
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                displayList
 
-            if visibleDisplays.isEmpty {
-                Text(controller.isRefreshing ? "Scanning Displays" : "No Controllable Displays")
-                    .font(compact ? .caption : .callout)
-                    .foregroundStyle(secondaryColor)
-                    .frame(maxWidth: .infinity, minHeight: compact ? 70 : 120, alignment: .center)
-                    .background(panelBackground)
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: displayGridColumns, spacing: compact ? 8 : 12) {
-                        ForEach(visibleDisplays) { display in
-                            displayCard(display)
-                        }
-                    }
+                if let message = controller.lastMessage {
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(secondaryColor)
+                        .lineLimit(2)
+                        .padding(.top, 6)
                 }
-                .frame(maxHeight: compact ? 220 : nil)
             }
-
-            if let message = controller.lastMessage {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(secondaryColor)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Text("Built-in displays use the system brightness interface. External displays try DDC/CI brightness control.")
-                .font(.caption2)
-                .foregroundStyle(secondaryColor)
-                .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, compact ? 4 : 0)
+            .padding(.vertical, compact ? 2 : 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(compact ? 10 : 0)
-        .background {
-            if compact {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.white.opacity(0.08))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.white.opacity(0.13), lineWidth: 1)
-                    )
-            }
-        }
+        .frame(maxWidth: .infinity, maxHeight: compact ? 246 : nil, alignment: .topLeading)
         .onAppear {
             controller.refreshIfNeeded()
         }
     }
 
-    private var header: some View {
-        HStack {
-            Label("Display Controls", systemImage: "display.2")
-                .font(compact ? .caption.weight(.semibold) : .headline)
-                .foregroundStyle(primaryColor)
-
-            Spacer()
-
-            Button {
-                controller.refresh()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: compact ? 11 : 13, weight: .semibold))
-                    .frame(width: compact ? 24 : 28, height: compact ? 22 : 26)
+    @ViewBuilder
+    private var displayList: some View {
+        if visibleDisplays.isEmpty {
+            Text(controller.isRefreshing ? "Scanning Displays" : "No Controllable Displays")
+                .font(compact ? .caption : .callout)
+                .foregroundStyle(secondaryColor)
+                .frame(maxWidth: .infinity, minHeight: compact ? 64 : 110, alignment: .center)
+        } else {
+            VStack(spacing: compact ? 3 : 5) {
+                ForEach(visibleDisplays.prefix(compact ? 5 : 12)) { display in
+                    displayBrightnessRow(display)
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(controller.isRefreshing)
-            .foregroundStyle(primaryColor.opacity(controller.isRefreshing ? 0.35 : 0.85))
-            .background(controlButtonBackground, in: RoundedRectangle(cornerRadius: 7))
-            .help("Refresh Displays")
         }
     }
 
-    private var displayGridColumns: [GridItem] {
-        if visibleDisplays.count <= 1 {
-            return [GridItem(.flexible(), spacing: compact ? 8 : 12)]
-        }
-
-        return [
-            GridItem(.flexible(), spacing: compact ? 8 : 12),
-            GridItem(.flexible(), spacing: compact ? 8 : 12)
-        ]
-    }
-
-    private func displayCard(_ display: ControlledDisplay) -> some View {
-        VStack(alignment: .leading, spacing: compact ? 7 : 10) {
-            HStack(spacing: 8) {
-                Image(systemName: display.isBuiltIn ? "macbook" : "display")
-                    .font(.system(size: compact ? 11 : 15, weight: .semibold))
-                    .foregroundStyle(display.isBuiltIn ? .orange : .indigo)
-                    .frame(width: compact ? 18 : 24)
+    private func displayBrightnessRow(_ display: ControlledDisplay) -> some View {
+        HStack(spacing: compact ? 9 : 12) {
+            HStack(spacing: compact ? 8 : 10) {
+                Circle()
+                    .fill(display.isBuiltIn ? Color.orange.opacity(0.95) : Color.white.opacity(0.12))
+                    .frame(width: compact ? 30 : 34, height: compact ? 30 : 34)
+                    .overlay {
+                        Image(systemName: displayIconName(for: display))
+                            .font(.system(size: compact ? 15 : 17, weight: .semibold))
+                            .foregroundStyle(display.isBuiltIn ? .white : secondaryColor)
+                    }
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(display.name)
-                        .font(compact ? .caption.weight(.medium) : .callout.weight(.medium))
+                        .font(compact ? .caption.weight(.semibold) : .callout.weight(.semibold))
                         .foregroundStyle(primaryColor)
                         .lineLimit(1)
 
                     Text(display.isBuiltIn ? "Built-in" : "External")
                         .font(.caption2)
                         .foregroundStyle(secondaryColor)
+                        .lineLimit(1)
                 }
-
-                Spacer()
+                .frame(width: compact ? 176 : 230, alignment: .leading)
             }
 
-            DisplayControlSlider(
-                title: "Brightness",
-                systemImage: "sun.max",
+            Image(systemName: "sun.max.fill")
+                .font(.system(size: compact ? 13 : 15, weight: .semibold))
+                .frame(width: compact ? 22 : 24, height: compact ? 22 : 24)
+                .foregroundStyle(display.supportsBrightness ? .orange : primaryColor.opacity(0.24))
+
+            DisplayBrightnessSlider(
                 value: controller.value(for: display.id, control: .brightness),
                 isEnabled: display.supportsBrightness,
-                unavailableText: display.unavailableReason(for: .brightness),
-                compact: compact,
                 primaryColor: primaryColor,
                 secondaryColor: secondaryColor,
-                tint: .orange,
                 onChange: { controller.setValue($0, control: .brightness, displayID: display.id) }
             )
+            .layoutPriority(1)
         }
-        .padding(compact ? 8 : 14)
-        .background(panelBackground)
+        .frame(maxWidth: .infinity, minHeight: compact ? 39 : 44, maxHeight: compact ? 39 : 44)
+        .contentShape(Rectangle())
+        .help(display.supportsBrightness ? Text("Brightness") : Text(display.unavailableReason(for: .brightness) ?? "Brightness"))
+        .contextMenu {
+            Button("Refresh Displays") {
+                controller.refresh()
+            }
+        }
     }
 
     private var primaryColor: Color {
@@ -139,64 +106,35 @@ struct DisplayControlsView: View {
         compact ? .white.opacity(0.52) : .secondary
     }
 
-    private var controlButtonBackground: Color {
-        compact ? Color.white.opacity(0.08) : Color.primary.opacity(0.06)
-    }
-
-    private var panelBackground: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(compact ? Color.white.opacity(0.07) : Color.primary.opacity(0.035))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(compact ? Color.white.opacity(0.12) : Color.primary.opacity(0.06), lineWidth: 1)
-            )
+    private func displayIconName(for display: ControlledDisplay) -> String {
+        display.isBuiltIn ? "laptopcomputer" : "display"
     }
 }
 
-private struct DisplayControlSlider: View {
-    let title: LocalizedStringKey
-    let systemImage: String
+private struct DisplayBrightnessSlider: View {
     let value: Double
     let isEnabled: Bool
-    let unavailableText: String?
-    let compact: Bool
     let primaryColor: Color
     let secondaryColor: Color
-    let tint: Color
     let onChange: (Double) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 8) {
-                Label(title, systemImage: systemImage)
-                    .font(compact ? .caption2 : .caption)
-                    .foregroundStyle(isEnabled ? tint : secondaryColor)
-                    .frame(width: compact ? 72 : 92, alignment: .leading)
+        HStack(spacing: 9) {
+            Slider(
+                value: Binding(
+                    get: { value },
+                    set: { onChange($0) }
+                ),
+                in: 0...100
+            )
+            .tint(isEnabled ? .orange : secondaryColor)
+            .disabled(!isEnabled)
 
-                Slider(
-                    value: Binding(
-                        get: { value },
-                        set: { onChange($0) }
-                    ),
-                    in: 0...100
-                )
-                .tint(isEnabled ? tint : secondaryColor)
-                .disabled(!isEnabled)
-
-                Text(isEnabled ? "\(Int(value.rounded()))%" : "--")
-                    .font(compact ? .caption2.weight(.semibold) : .caption.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(isEnabled ? tint : secondaryColor)
-                    .frame(width: compact ? 36 : 46, alignment: .trailing)
-            }
-
-            if !isEnabled, let unavailableText {
-                Text(unavailableText)
-                    .font(.caption2)
-                    .foregroundStyle(secondaryColor)
-                    .lineLimit(compact ? 1 : 2)
-                    .padding(.leading, compact ? 80 : 100)
-            }
+            Text(isEnabled ? "\(Int(value.rounded()))%" : "--")
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(isEnabled ? primaryColor.opacity(0.72) : secondaryColor)
+                .frame(width: 42, alignment: .trailing)
         }
     }
 }
