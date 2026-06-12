@@ -125,11 +125,14 @@ struct NotchMetricsView: View {
         HStack(alignment: .top, spacing: 10) {
             resourceSummaryList
 
-            ResourceAppUsagePanel(
+            ResourceDetailPanel(
                 resource: expandedResource,
+                details: details(for: expandedResource),
+                history: history(for: expandedResource),
                 items: processItems(for: expandedResource),
                 valueTitle: processValueTitle(for: expandedResource),
                 value: processValueFormatter(for: expandedResource),
+                isCompact: false,
                 onTerminate: { metricsService.terminate($0, force: false) },
                 onForceTerminate: { forceQuitItem = $0 }
             )
@@ -142,12 +145,14 @@ struct NotchMetricsView: View {
         VStack(spacing: 8) {
             resourceGrid
 
-            ResourceExpansionPanel(
+            ResourceDetailPanel(
                 resource: expandedResource,
                 details: details(for: expandedResource),
+                history: history(for: expandedResource),
                 items: processItems(for: expandedResource),
                 valueTitle: processValueTitle(for: expandedResource),
                 value: processValueFormatter(for: expandedResource),
+                isCompact: true,
                 onTerminate: { metricsService.terminate($0, force: false) },
                 onForceTerminate: { forceQuitItem = $0 }
             )
@@ -507,81 +512,144 @@ private struct ResourceMetricCard: View {
     }
 }
 
-private struct ResourceExpansionPanel: View {
+private struct ResourceDetailPanel: View {
     let resource: ResourceMonitorKind
     let details: [(LocalizedStringKey, String)]
+    let history: [Double]
     let items: [ProcessResourceItem]
     let valueTitle: LocalizedStringKey
     let value: (ProcessResourceItem) -> String
+    let isCompact: Bool
     let onTerminate: (ProcessResourceItem) -> Void
     let onForceTerminate: (ProcessResourceItem) -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
                 Label(resource.title, systemImage: resource.symbol)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(resource.tint)
-
-                ForEach(Array(details.prefix(5).enumerated()), id: \.offset) { _, detail in
-                    HStack {
-                        Text(detail.0)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.white.opacity(0.56))
-                        Spacer(minLength: 8)
-                        Text(detail.1)
-                            .font(.caption.weight(.semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(.white.opacity(0.9))
-                            .lineLimit(1)
-                    }
+                Spacer()
+                if resource.supportsAppList {
+                    Label("App Usage", systemImage: "app.badge")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.62))
+                } else {
+                    Label("System-level data", systemImage: "info.circle")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.62))
                 }
             }
-            .frame(width: 176, alignment: .topLeading)
 
-            VStack(alignment: .leading, spacing: 7) {
-                HStack {
-                    Label("App Usage", systemImage: "app.badge")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.8))
-                    Spacer()
-                    Text(valueTitle)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.48))
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 6),
+                    GridItem(.flexible(), spacing: 6)
+                ],
+                alignment: .leading,
+                spacing: 6
+            ) {
+                ForEach(Array(details.prefix(isCompact ? 4 : 6).enumerated()), id: \.offset) { _, detail in
+                    ResourceDetailChip(title: detail.0, value: detail.1)
                 }
+            }
 
-                if resource.supportsAppList {
-                    if items.isEmpty {
-                        Text("No app samples yet")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.5))
-                            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-                    } else {
-                        ScrollView {
-                            VStack(spacing: 4) {
-                                ForEach(Array(items.prefix(5))) { item in
-                                    ProcessRow(
-                                        item: item,
-                                        value: value(item),
-                                        onTerminate: { onTerminate(item) },
-                                        onForceTerminate: { onForceTerminate(item) }
-                                    )
-                                }
-                            }
-                        }
-                        .frame(maxHeight: 96)
-                    }
-                } else {
-                    Text("App-level usage is not available for this resource.")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.5))
-                        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-                }
+            if resource.supportsAppList {
+                appUsageContent
+            } else {
+                systemMetricContent
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(CardBackground())
+    }
+
+    private var appUsageContent: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("App Usage")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.78))
+                Spacer()
+                Text(valueTitle)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.48))
+            }
+
+            if items.isEmpty {
+                Text("No app samples yet")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.5))
+                    .frame(maxWidth: .infinity, minHeight: isCompact ? 42 : 72, alignment: .center)
+            } else {
+                ScrollView {
+                    VStack(spacing: isCompact ? 4 : 5) {
+                        ForEach(Array(items.prefix(isCompact ? 5 : 8))) { item in
+                            ProcessRow(
+                                item: item,
+                                value: value(item),
+                                onTerminate: { onTerminate(item) },
+                                onForceTerminate: { onForceTerminate(item) }
+                            )
+                        }
+                    }
+                }
+                .frame(maxHeight: isCompact ? 82 : nil)
+            }
+        }
+    }
+
+    private var systemMetricContent: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            if !history.isEmpty {
+                MetricMiniGraph(data: history, color: resource.tint)
+                    .frame(height: isCompact ? 24 : 34)
+                    .padding(.top, 1)
+            }
+
+            HStack(alignment: .top, spacing: 7) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(resource.tint.opacity(0.9))
+                    .frame(width: 14)
+
+                Text("App-level usage is not available for this resource.")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.52))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 7))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct ResourceDetailChip: View {
+    let title: LocalizedStringKey
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(title)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.white.opacity(0.52))
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+            Spacer(minLength: 4)
+            Text(value)
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 6))
     }
 }
 
@@ -634,62 +702,6 @@ private struct CompactResourceStatRow: View {
                         .stroke(isSelected ? resource.tint.opacity(0.62) : Color.white.opacity(0.08), lineWidth: 1)
                 )
         )
-    }
-}
-
-private struct ResourceAppUsagePanel: View {
-    let resource: ResourceMonitorKind
-    let items: [ProcessResourceItem]
-    let valueTitle: LocalizedStringKey
-    let value: (ProcessResourceItem) -> String
-    let onTerminate: (ProcessResourceItem) -> Void
-    let onForceTerminate: (ProcessResourceItem) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Label("App Usage", systemImage: "app.badge")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.84))
-                Spacer()
-                Label(resource.title, systemImage: resource.symbol)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(resource.tint)
-                Text(valueTitle)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.48))
-            }
-
-            if resource.supportsAppList {
-                if items.isEmpty {
-                    Text("No app samples yet")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.5))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                } else {
-                    ScrollView {
-                        VStack(spacing: 5) {
-                            ForEach(Array(items.prefix(8))) { item in
-                                ProcessRow(
-                                    item: item,
-                                    value: value(item),
-                                    onTerminate: { onTerminate(item) },
-                                    onForceTerminate: { onForceTerminate(item) }
-                                )
-                            }
-                        }
-                    }
-                }
-            } else {
-                Text("App-level usage is not available for this resource.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.5))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(CardBackground())
     }
 }
 
