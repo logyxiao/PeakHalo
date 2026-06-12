@@ -46,6 +46,8 @@ struct DisplaySettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            collapsedMonitorSection
+
             Divider()
 
             settingsHeader(
@@ -65,6 +67,45 @@ struct DisplaySettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var collapsedMonitorSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            settingsHeader(
+                title: "Collapsed Monitors",
+                subtitle: "Choose which monitors appear while the notch or island is collapsed."
+            )
+
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 8),
+                    GridItem(.flexible(), spacing: 8)
+                ],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(ResourceMonitorKind.allCases) { resource in
+                    collapsedMonitorToggle(resource)
+                }
+            }
+        }
+    }
+
+    private func collapsedMonitorToggle(_ resource: ResourceMonitorKind) -> some View {
+        Toggle(
+            isOn: Binding(
+                get: { preferences.collapsedVisibleMonitors.contains(resource) },
+                set: { preferences.setCollapsedMonitor(resource, isVisible: $0) }
+            )
+        ) {
+            Label {
+                Text(resource.title)
+            } icon: {
+                Image(systemName: resource.symbol)
+                    .foregroundStyle(resource.tint)
+            }
+        }
+        .toggleStyle(.checkbox)
     }
 
     private func ensureValidDisplaySelection() {

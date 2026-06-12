@@ -15,6 +15,7 @@ APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 ENTITLEMENTS_PLIST="$DIST_DIR/$APP_NAME.entitlements"
+APP_ICON_SOURCE="$ROOT_DIR/Sources/PeakHalo/Resources/AppIcon.icns"
 
 cd "$ROOT_DIR"
 
@@ -45,6 +46,8 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$BUNDLE_ID</string>
   <key>CFBundleName</key>
   <string>$APP_NAME</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleDevelopmentRegion</key>
@@ -64,6 +67,10 @@ cat >"$INFO_PLIST" <<PLIST
 </dict>
 </plist>
 PLIST
+
+if [[ -f "$APP_ICON_SOURCE" ]]; then
+  cp "$APP_ICON_SOURCE" "$APP_RESOURCES/AppIcon.icns"
+fi
 
 cat >"$ENTITLEMENTS_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

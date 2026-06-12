@@ -15,7 +15,7 @@ final class MenuBarStatusItemController: NSObject {
         guard statusItem == nil else { return }
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "display.2", accessibilityDescription: String(localized: "PeakHalo"))
+        item.button?.image = Self.makeStatusBarIcon()
         item.button?.imagePosition = .imageOnly
         item.button?.target = self
         item.button?.action = #selector(handleStatusItemClick(_:))
@@ -54,11 +54,10 @@ final class MenuBarStatusItemController: NSObject {
         let menu = NSMenu()
         if preferences.panelActivationMode == .menuBarIcon {
             menu.addItem(withTitle: String(localized: "Toggle Panel"), action: #selector(togglePanel), keyEquivalent: "")
+            menu.addItem(.separator())
         } else {
-            menu.addItem(withTitle: String(localized: "Open Notch"), action: #selector(openPanel), keyEquivalent: "")
-            menu.addItem(withTitle: String(localized: "Collapse"), action: #selector(closePanel), keyEquivalent: "")
+            NotchWindowManager.shared.close(animated: false)
         }
-        menu.addItem(.separator())
         menu.addItem(withTitle: String(localized: "Settings"), action: #selector(showSettings), keyEquivalent: ",")
         menu.addItem(.separator())
         menu.addItem(withTitle: String(localized: "Quit PeakHalo"), action: #selector(quit), keyEquivalent: "q")
@@ -78,20 +77,8 @@ final class MenuBarStatusItemController: NSObject {
     }
 
     @objc
-    private func openPanel() {
-        NotchWindowManager.shared.open(fromMenuBarAnchor: statusItemAnchorRect())
-    }
-
-    @objc
-    private func closePanel() {
-        NotchWindowManager.shared.close()
-    }
-
-    @objc
     private func showSettings() {
-        if preferences.panelActivationMode == .menuBarIcon {
-            NotchWindowManager.shared.close(animated: false)
-        }
+        NotchWindowManager.shared.close(animated: false)
         AppWindowPresenter.shared.showSettingsWindow()
     }
 
@@ -107,5 +94,46 @@ final class MenuBarStatusItemController: NSObject {
         }
 
         return window.convertToScreen(button.convert(button.bounds, to: nil))
+    }
+
+    private static func makeStatusBarIcon() -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: false) { rect in
+            let strokeColor = NSColor.black.withAlphaComponent(0.92)
+            strokeColor.setStroke()
+            strokeColor.setFill()
+
+            let haloPath = NSBezierPath()
+            haloPath.appendArc(
+                withCenter: NSPoint(x: rect.midX, y: rect.midY - 0.3),
+                radius: 5.15,
+                startAngle: 36,
+                endAngle: 326
+            )
+            haloPath.lineWidth = 1.7
+            haloPath.lineCapStyle = .round
+            haloPath.stroke()
+
+            let notchRect = NSRect(x: rect.midX - 2.2, y: rect.maxY - 4.9, width: 4.4, height: 1.5)
+            let notchPath = NSBezierPath(roundedRect: notchRect, xRadius: 0.75, yRadius: 0.75)
+            notchPath.fill()
+
+            let pulsePath = NSBezierPath()
+            pulsePath.lineWidth = 1.45
+            pulsePath.lineCapStyle = .round
+            pulsePath.lineJoinStyle = .round
+            pulsePath.move(to: NSPoint(x: rect.midX - 2.6, y: rect.midY - 0.8))
+            pulsePath.line(to: NSPoint(x: rect.midX - 1.0, y: rect.midY - 0.8))
+            pulsePath.line(to: NSPoint(x: rect.midX - 0.1, y: rect.midY + 0.9))
+            pulsePath.line(to: NSPoint(x: rect.midX + 1.0, y: rect.midY - 1.8))
+            pulsePath.line(to: NSPoint(x: rect.midX + 2.2, y: rect.midY - 0.2))
+            pulsePath.line(to: NSPoint(x: rect.midX + 3.4, y: rect.midY - 0.2))
+            pulsePath.stroke()
+
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = String(localized: "PeakHalo")
+        return image
     }
 }

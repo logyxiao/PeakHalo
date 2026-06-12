@@ -1,13 +1,13 @@
 "Appearance" = "外观";
 "About" = "关于";
 "Classic notch shape attached to the top edge of the screen." = "贴合屏幕顶部边缘的经典刘海形态。";
-"Collapse" = "收起";
 "Control whether the notch monitor is visible in screen captures." = "控制刘海监控是否出现在截图和录屏中。";
 "Choose where the notch monitor appears." = "选择刘海监控显示在哪些屏幕上。";
 "Display Placement" = "显示位置";
 "Display Style" = "显示样式";
 "Display" = "显示";
 "Dynamic Island" = "灵动岛";
+"Collapsed Monitors" = "收起态监视项";
 "Floating pill shape with a small gap from the top edge." = "与顶部边缘保持间距的悬浮胶囊形态。";
 "Hide Dynamic Island during screenshots and recordings" = "截图和录制时隐藏灵动岛";
 "Main Display" = "主显示器";
@@ -18,7 +18,6 @@
 "Move the pointer into the notch or island to expand the controls." = "将鼠标移入刘海或灵动岛以展开控制面板。";
 "Notch Monitor" = "刘海监控";
 "Notch Hover" = "刘海悬停";
-"Open Notch" = "打开刘海";
 "Open control panel with" = "控制面板打开方式";
 "Overview" = "总览";
 "Panel Opening" = "面板打开方式";
@@ -32,6 +31,7 @@
 "Show on a specific display" = "在指定显示器上显示";
 "Standard Notch" = "标准刘海";
 "Switch between the edge-attached notch and the floating island." = "在贴边刘海和悬浮灵动岛之间切换。";
+"Choose which monitors appear while the notch or island is collapsed." = "选择刘海或灵动岛收起时显示哪些监视项。";
 "Choose how the control panel is expanded." = "选择控制面板的展开方式。";
 "Click the menu bar icon to expand or collapse the controls." = "点击菜单栏图标展开或收起控制面板。";
 "Toggle Panel" = "切换面板";

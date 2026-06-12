@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum ResourceMonitorKind: String, CaseIterable, Identifiable {
+enum ResourceMonitorKind: String, CaseIterable, Identifiable, Hashable {
     case cpu
     case gpu
     case memory

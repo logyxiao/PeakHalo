@@ -4,6 +4,7 @@ import SwiftUI
 struct NotchMetricsView: View {
     let state: NotchState
     @ObservedObject var metricsService: SystemMetricsService
+    @ObservedObject private var preferences = DisplayPreferencesStore.shared
 
     @State private var selectedTab: NotchMetricsTab = .monitor
     @State private var expandedResource: ResourceMonitorKind = .cpu
@@ -23,19 +24,41 @@ struct NotchMetricsView: View {
     }
 
     private var closedContent: some View {
-        HStack(spacing: 8) {
-            CompactMetricBadge(title: "CPU", symbol: "cpu", color: .blue, value: MetricFormat.percent(snapshot.cpu.percent))
-            CompactMetricBadge(title: "GPU", symbol: "display", color: .purple, value: MetricFormat.percent(snapshot.gpu.percent))
-            CompactMetricBadge(title: "Memory", symbol: "memorychip", color: .green, value: MetricFormat.percent(snapshot.memory.percent))
-            CompactMetricBadge(
-                title: "Network",
-                symbol: "arrow.down",
-                color: .cyan,
-                value: MetricFormat.rate(snapshot.stats.network.downloadBytesPerSecond)
-            )
+        Group {
+            if visibleClosedResources.isEmpty {
+                CollapsedMonitorPlaceholder()
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    compactResourceRow(showIcons: true)
+                        .fixedSize(horizontal: true, vertical: false)
+                    compactResourceRow(showIcons: false)
+                        .fixedSize(horizontal: true, vertical: false)
+                    compactResourceRow(showIcons: false)
+                }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+
+    private var visibleClosedResources: [ResourceMonitorKind] {
+        return ResourceMonitorKind.allCases.filter {
+            preferences.collapsedVisibleMonitors.contains($0)
+        }
+    }
+
+    private func compactResourceRow(showIcons: Bool) -> some View {
+        HStack(spacing: showIcons ? 8 : 7) {
+            ForEach(visibleClosedResources) { resource in
+                CompactMetricBadge(
+                    title: resource.title,
+                    symbol: compactSymbol(for: resource),
+                    color: resource.tint,
+                    value: value(for: resource),
+                    showIcon: showIcons
+                )
+            }
+        }
     }
 
     private var expandedContent: some View {
@@ -141,6 +164,15 @@ struct NotchMetricsView: View {
             MetricFormat.percent(snapshot.storage.percent)
         case .battery:
             MetricFormat.percent(snapshot.battery.percent)
+        }
+    }
+
+    private func compactSymbol(for resource: ResourceMonitorKind) -> String {
+        switch resource {
+        case .network:
+            "arrow.down"
+        default:
+            resource.symbol
         }
     }
 
@@ -460,12 +492,15 @@ private struct CompactMetricBadge: View {
     let symbol: String
     let color: Color
     let value: String
+    let showIcon: Bool
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: symbol)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(color)
+        HStack(spacing: showIcon ? 4 : 3) {
+            if showIcon {
+                Image(systemName: symbol)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(color)
+            }
 
             Text(title)
                 .font(.system(size: 10, weight: .medium))
@@ -477,7 +512,25 @@ private struct CompactMetricBadge: View {
                 .foregroundStyle(.white)
         }
         .lineLimit(1)
-        .minimumScaleFactor(0.72)
+        .minimumScaleFactor(0.76)
+    }
+}
+
+private struct CollapsedMonitorPlaceholder: View {
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(Color.white.opacity(0.68))
+                .frame(width: 5, height: 5)
+            Capsule()
+                .fill(Color.white.opacity(0.3))
+                .frame(width: 28, height: 4)
+            Circle()
+                .fill(Color.white.opacity(0.44))
+                .frame(width: 5, height: 5)
+        }
+        .frame(minWidth: 58, minHeight: 14)
+        .accessibilityLabel(Text("Dynamic Island"))
     }
 }
 

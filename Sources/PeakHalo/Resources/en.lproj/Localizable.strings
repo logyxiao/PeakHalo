@@ -1,13 +1,13 @@
 "Appearance" = "Appearance";
 "About" = "About";
 "Classic notch shape attached to the top edge of the screen." = "Classic notch shape attached to the top edge of the screen.";
-"Collapse" = "Collapse";
 "Control whether the notch monitor is visible in screen captures." = "Control whether the notch monitor is visible in screen captures.";
 "Choose where the notch monitor appears." = "Choose where the notch monitor appears.";
 "Display Placement" = "Display Placement";
 "Display Style" = "Display Style";
 "Display" = "Display";
 "Dynamic Island" = "Dynamic Island";
+"Collapsed Monitors" = "Collapsed Monitors";
 "Floating pill shape with a small gap from the top edge." = "Floating pill shape with a small gap from the top edge.";
 "Hide Dynamic Island during screenshots and recordings" = "Hide Dynamic Island during screenshots and recordings";
 "Main Display" = "Main Display";
@@ -18,7 +18,6 @@
 "Move the pointer into the notch or island to expand the controls." = "Move the pointer into the notch or island to expand the controls.";
 "Notch Monitor" = "Notch Monitor";
 "Notch Hover" = "Notch Hover";
-"Open Notch" = "Open Notch";
 "Open control panel with" = "Open control panel with";
 "Overview" = "Overview";
 "Panel Opening" = "Panel Opening";
@@ -32,6 +31,7 @@
 "Show on a specific display" = "Show on a specific display";
 "Standard Notch" = "Standard Notch";
 "Switch between the edge-attached notch and the floating island." = "Switch between the edge-attached notch and the floating island.";
+"Choose which monitors appear while the notch or island is collapsed." = "Choose which monitors appear while the notch or island is collapsed.";
 "Choose how the control panel is expanded." = "Choose how the control panel is expanded.";
 "Click the menu bar icon to expand or collapse the controls." = "Click the menu bar icon to expand or collapse the controls.";
 "Toggle Panel" = "Toggle Panel";

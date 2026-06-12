@@ -90,6 +90,15 @@ final class DisplayPreferencesStore: ObservableObject {
         }
     }
 
+    @Published var collapsedVisibleMonitors: Set<ResourceMonitorKind> {
+        didSet {
+            defaults.set(
+                collapsedVisibleMonitors.map(\.rawValue).sorted(),
+                forKey: Keys.collapsedVisibleMonitors
+            )
+        }
+    }
+
     private let defaults: UserDefaults
 
     private enum Keys {
@@ -98,6 +107,8 @@ final class DisplayPreferencesStore: ObservableObject {
         static let appearanceStyle = "display.appearanceStyle"
         static let panelActivationMode = "display.panelActivationMode"
         static let hideFromScreenCapture = "privacy.hideFromScreenCapture"
+        static let collapsedVisibleMonitors = "display.collapsedVisibleMonitors"
+        static let legacyDynamicIslandVisibleMonitors = "display.dynamicIslandVisibleMonitors"
     }
 
     private init(defaults: UserDefaults = .standard) {
@@ -122,5 +133,21 @@ final class DisplayPreferencesStore: ObservableObject {
         }
 
         hideFromScreenCapture = defaults.bool(forKey: Keys.hideFromScreenCapture)
+
+        if let rawMonitors = defaults.stringArray(forKey: Keys.collapsedVisibleMonitors)
+            ?? defaults.stringArray(forKey: Keys.legacyDynamicIslandVisibleMonitors) {
+            let storedMonitors = Set(rawMonitors.compactMap(ResourceMonitorKind.init(rawValue:)))
+            collapsedVisibleMonitors = storedMonitors
+        } else {
+            collapsedVisibleMonitors = [.cpu, .gpu, .memory, .network]
+        }
+    }
+
+    func setCollapsedMonitor(_ resource: ResourceMonitorKind, isVisible: Bool) {
+        if isVisible {
+            collapsedVisibleMonitors.insert(resource)
+        } else {
+            collapsedVisibleMonitors.remove(resource)
+        }
     }
 }
