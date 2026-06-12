@@ -52,6 +52,31 @@ enum PanelActivationMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum MonitorLayoutStyle: String, CaseIterable, Identifiable {
+    case split
+    case cards
+
+    var id: String { rawValue }
+
+    var localizedName: LocalizedStringKey {
+        switch self {
+        case .split:
+            "Split Layout"
+        case .cards:
+            "Card Layout"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .split:
+            "rectangle.split.2x1"
+        case .cards:
+            "square.grid.2x2"
+        }
+    }
+}
+
 @MainActor
 final class DisplayPreferencesStore: ObservableObject {
     static let shared = DisplayPreferencesStore()
@@ -90,6 +115,12 @@ final class DisplayPreferencesStore: ObservableObject {
         }
     }
 
+    @Published var monitorLayoutStyle: MonitorLayoutStyle {
+        didSet {
+            defaults.set(monitorLayoutStyle.rawValue, forKey: Keys.monitorLayoutStyle)
+        }
+    }
+
     @Published var collapsedVisibleMonitors: Set<ResourceMonitorKind> {
         didSet {
             defaults.set(
@@ -107,6 +138,7 @@ final class DisplayPreferencesStore: ObservableObject {
         static let appearanceStyle = "display.appearanceStyle"
         static let panelActivationMode = "display.panelActivationMode"
         static let hideFromScreenCapture = "privacy.hideFromScreenCapture"
+        static let monitorLayoutStyle = "monitor.layoutStyle"
         static let collapsedVisibleMonitors = "display.collapsedVisibleMonitors"
         static let legacyDynamicIslandVisibleMonitors = "display.dynamicIslandVisibleMonitors"
     }
@@ -133,6 +165,13 @@ final class DisplayPreferencesStore: ObservableObject {
         }
 
         hideFromScreenCapture = defaults.bool(forKey: Keys.hideFromScreenCapture)
+
+        if let rawLayout = defaults.string(forKey: Keys.monitorLayoutStyle),
+           let storedLayout = MonitorLayoutStyle(rawValue: rawLayout) {
+            monitorLayoutStyle = storedLayout
+        } else {
+            monitorLayoutStyle = .split
+        }
 
         if let rawMonitors = defaults.stringArray(forKey: Keys.collapsedVisibleMonitors)
             ?? defaults.stringArray(forKey: Keys.legacyDynamicIslandVisibleMonitors) {

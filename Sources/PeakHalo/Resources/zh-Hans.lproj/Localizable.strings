@@ -29,6 +29,7 @@
 "Search Settings" = "搜索设置";
 "Show on all displays" = "在所有显示器上显示";
 "Show on a specific display" = "在指定显示器上显示";
+"Split Layout" = "分栏布局";
 "Standard Notch" = "标准刘海";
 "Switch between the edge-attached notch and the floating island." = "在贴边刘海和悬浮灵动岛之间切换。";
 "Choose which monitors appear while the notch or island is collapsed." = "选择刘海或灵动岛收起时显示哪些监视项。";
@@ -48,6 +49,7 @@
 "Battery" = "电池";
 "Cached" = "缓存";
 "Cancel" = "取消";
+"Card Layout" = "卡片布局";
 "Charging" = "充电中";
 "Compressed" = "压缩";
 "CPU / Memory" = "CPU / 内存";

@@ -94,7 +94,6 @@ struct AudioControlsView: View {
                 tint: controlProgressColor,
                 primaryColor: primaryColor,
                 secondaryColor: secondaryColor,
-                width: compact ? 176 : 260,
                 onChange: { store.setDeviceVolume($0, deviceID: device.id) }
             )
             .layoutPriority(1)
@@ -223,7 +222,6 @@ struct AudioControlsView: View {
                 tint: controlProgressColor,
                 primaryColor: primaryColor,
                 secondaryColor: secondaryColor,
-                width: compact ? 92 : 160,
                 onChange: { store.setAppVolume($0, itemID: item.id) }
             )
             .layoutPriority(1)
@@ -427,7 +425,6 @@ private struct AudioSlider: View {
     let tint: Color
     let primaryColor: Color
     let secondaryColor: Color
-    let width: CGFloat
     let onChange: (Double) -> Void
 
     var body: some View {
@@ -440,7 +437,6 @@ private struct AudioSlider: View {
                 secondaryColor: secondaryColor,
                 onChange: onChange
             )
-            .frame(width: width)
 
             Text(isEnabled ? "\(Int(value.rounded()))%" : "--")
                 .font(.caption.weight(.semibold))
