@@ -1,0 +1,64 @@
+import AppKit
+import CoreAudio
+import Foundation
+
+struct AudioOutputDevice: Identifiable, Equatable {
+    let id: AudioObjectID
+    let uid: String
+    let name: String
+    let transportName: String
+    var isDefault: Bool
+    var volume: Double
+    var isMuted: Bool
+    let supportsVolume: Bool
+    let supportsMute: Bool
+    let unavailableReason: String?
+}
+
+enum AudioBoostLevel: Double, CaseIterable, Identifiable {
+    case x1 = 1
+    case x2 = 2
+    case x3 = 3
+    case x4 = 4
+
+    var id: Double { rawValue }
+
+    var title: String {
+        "\(Int(rawValue))x"
+    }
+}
+
+struct AudioAppVolumeSettings: Codable, Equatable {
+    var volume: Double
+    var isMuted: Bool
+    var boost: Double
+    var isPinned: Bool
+    var isIgnored: Bool
+
+    static let `default` = AudioAppVolumeSettings(
+        volume: 100,
+        isMuted: false,
+        boost: AudioBoostLevel.x1.rawValue,
+        isPinned: false,
+        isIgnored: false
+    )
+}
+
+struct AudioAppVolumeItem: Identifiable {
+    let id: String
+    let name: String
+    let bundleIdentifier: String?
+    let processID: pid_t?
+    let icon: NSImage?
+    let isRunning: Bool
+    var volume: Double
+    var isMuted: Bool
+    var boost: AudioBoostLevel
+    var isPinned: Bool
+    var isIgnored: Bool
+}
+
+enum AudioCaptureSupportState: Equatable {
+    case available
+    case unsupported(String)
+}
