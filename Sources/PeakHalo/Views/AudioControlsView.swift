@@ -4,6 +4,7 @@ import SwiftUI
 struct AudioControlsView: View {
     let compact: Bool
     @ObservedObject private var store = AudioControlStore.shared
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -90,9 +91,10 @@ struct AudioControlsView: View {
             AudioSlider(
                 value: device.volume,
                 isEnabled: device.supportsVolume,
-                tint: .blue,
+                tint: controlProgressColor,
                 primaryColor: primaryColor,
                 secondaryColor: secondaryColor,
+                width: compact ? 176 : 260,
                 onChange: { store.setDeviceVolume($0, deviceID: device.id) }
             )
             .layoutPriority(1)
@@ -120,17 +122,11 @@ struct AudioControlsView: View {
     private var appList: some View {
         switch store.captureSupport {
         case .available:
-            if store.appItems.isEmpty {
-                Text("No running apps found.")
-                    .font(.caption)
-                    .foregroundStyle(secondaryColor)
-                    .frame(maxWidth: .infinity, minHeight: compact ? 50 : 80, alignment: .center)
-            } else {
-                VStack(spacing: compact ? 4 : 6) {
-                    ForEach(store.appItems.prefix(compact ? 4 : 12)) { item in
-                        appVolumeRow(item)
-                    }
-                }
+            appRows
+        case .permissionRequired(let reason):
+            VStack(alignment: .leading, spacing: compact ? 6 : 8) {
+                permissionBanner(reason)
+                appRows
             }
         case .unsupported(let reason):
             Text(reason)
@@ -140,13 +136,62 @@ struct AudioControlsView: View {
         }
     }
 
-    private func appVolumeRow(_ item: AudioAppVolumeItem) -> some View {
-        HStack(spacing: compact ? 8 : 10) {
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(secondaryColor.opacity(0.55))
-                .frame(width: compact ? 12 : 16)
+    @ViewBuilder
+    private var appRows: some View {
+        if store.appItems.isEmpty {
+            Text("No running apps found.")
+                .font(.caption)
+                .foregroundStyle(secondaryColor)
+                .frame(maxWidth: .infinity, minHeight: compact ? 50 : 80, alignment: .center)
+        } else {
+            VStack(spacing: compact ? 4 : 6) {
+                ForEach(store.appItems.prefix(compact ? 4 : 12)) { item in
+                    appVolumeRow(item)
+                }
+            }
+        }
+    }
 
+    private func permissionBanner(_ reason: String) -> some View {
+        VStack(alignment: .leading, spacing: compact ? 5 : 7) {
+            HStack(alignment: .top, spacing: 7) {
+                Image(systemName: "lock.shield")
+                    .font(.system(size: compact ? 12 : 14, weight: .semibold))
+                    .foregroundStyle(.orange)
+                    .frame(width: compact ? 16 : 18)
+
+                Text(reason)
+                    .font(.caption2)
+                    .foregroundStyle(primaryColor.opacity(0.78))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                Button("Open System Settings") {
+                    openAudioPrivacySettings()
+                }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(controlProgressColor)
+
+                Button("Check Again") {
+                    store.refreshCaptureSupport()
+                    store.refresh()
+                }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(controlProgressColor)
+            }
+        }
+        .padding(compact ? 7 : 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(primaryColor.opacity(compact ? 0.08 : 0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func appVolumeRow(_ item: AudioAppVolumeItem) -> some View {
+        let controlsEnabled = store.canControlAppAudio && !item.isIgnored
+
+        return HStack(spacing: compact ? 8 : 10) {
             appIcon(item.icon)
 
             VStack(alignment: .leading, spacing: 1) {
@@ -165,7 +210,7 @@ struct AudioControlsView: View {
             iconButton(
                 systemImage: item.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                 isActive: item.isMuted,
-                isEnabled: !item.isIgnored,
+                isEnabled: controlsEnabled,
                 activeColor: .red,
                 help: item.isMuted ? "Unmute App" : "Mute App"
             ) {
@@ -174,10 +219,11 @@ struct AudioControlsView: View {
 
             AudioSlider(
                 value: item.volume,
-                isEnabled: !item.isIgnored,
-                tint: .blue,
+                isEnabled: controlsEnabled,
+                tint: controlProgressColor,
                 primaryColor: primaryColor,
                 secondaryColor: secondaryColor,
+                width: compact ? 92 : 160,
                 onChange: { store.setAppVolume($0, itemID: item.id) }
             )
             .layoutPriority(1)
@@ -202,7 +248,9 @@ struct AudioControlsView: View {
     }
 
     private func boostMenu(_ item: AudioAppVolumeItem) -> some View {
-        Menu {
+        let controlsEnabled = store.canControlAppAudio && !item.isIgnored
+
+        return Menu {
             ForEach(AudioBoostLevel.allCases) { level in
                 Button {
                     store.setAppBoost(level, itemID: item.id)
@@ -218,12 +266,14 @@ struct AudioControlsView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .disabled(item.isIgnored)
+        .disabled(!controlsEnabled)
         .help("Boost")
     }
 
     private func playbackDeviceMenu(_ item: AudioAppVolumeItem) -> some View {
-        Menu {
+        let controlsEnabled = store.canControlAppAudio && !item.isIgnored
+
+        return Menu {
             Button {
                 store.setAppOutputDevice(nil, itemID: item.id)
             } label: {
@@ -247,12 +297,13 @@ struct AudioControlsView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .disabled(store.outputDevices.isEmpty || item.isIgnored)
+        .disabled(!controlsEnabled || store.outputDevices.isEmpty)
         .help("Playback Device")
     }
 
     private func processingButton(_ item: AudioAppVolumeItem) -> some View {
         let isEnabled = store.isProcessingEnabled(itemID: item.id)
+        let controlsEnabled = store.canControlAppAudio && item.isAudible && !item.isIgnored
 
         return Button {
             store.toggleProcessing(itemID: item.id)
@@ -262,8 +313,9 @@ struct AudioControlsView: View {
                 .frame(width: compact ? 22 : 24, height: compact ? 22 : 24)
         }
         .buttonStyle(.plain)
-        .disabled(!item.isAudible || item.isIgnored)
-        .foregroundStyle(isEnabled ? .green : primaryColor.opacity(item.isAudible && !item.isIgnored ? 0.72 : 0.28))
+        .disabled(!controlsEnabled)
+        .foregroundStyle(isEnabled ? .green : primaryColor.opacity(controlsEnabled ? 0.72 : 0.28))
+        .fixedSize()
         .help(isEnabled ? "Disable Processing" : "Enable Processing")
     }
 
@@ -295,6 +347,10 @@ struct AudioControlsView: View {
     }
 
     private func appStatusText(for item: AudioAppVolumeItem) -> String {
+        guard store.canControlAppAudio else {
+            return String(localized: "Authorization Required")
+        }
+
         if item.isAudible {
             return store.isProcessingEnabled(itemID: item.id)
                 ? String(localized: "Processing")
@@ -357,6 +413,12 @@ struct AudioControlsView: View {
     private var secondaryColor: Color {
         compact ? .white.opacity(0.56) : .secondary
     }
+
+    private var controlProgressColor: Color {
+        colorScheme == .dark
+            ? Color(red: 0.38, green: 0.80, blue: 1.0)
+            : Color(red: 0.02, green: 0.48, blue: 0.88)
+    }
 }
 
 private struct AudioSlider: View {
@@ -365,19 +427,20 @@ private struct AudioSlider: View {
     let tint: Color
     let primaryColor: Color
     let secondaryColor: Color
+    let width: CGFloat
     let onChange: (Double) -> Void
 
     var body: some View {
         HStack(spacing: 9) {
-            Slider(
-                value: Binding(
-                    get: { value },
-                    set: { onChange($0) }
-                ),
-                in: 0...100
+            ControlValueSlider(
+                value: value,
+                isEnabled: isEnabled,
+                tint: tint,
+                primaryColor: primaryColor,
+                secondaryColor: secondaryColor,
+                onChange: onChange
             )
-            .tint(isEnabled ? tint : secondaryColor)
-            .disabled(!isEnabled)
+            .frame(width: width)
 
             Text(isEnabled ? "\(Int(value.rounded()))%" : "--")
                 .font(.caption.weight(.semibold))

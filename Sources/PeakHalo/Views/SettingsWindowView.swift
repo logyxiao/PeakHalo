@@ -105,10 +105,6 @@ struct SettingsWindowView: View {
                 } header: {
                     Text("Controls")
                 }
-            case .appearance:
-                Section {
-                    AppearanceSettingsView()
-                }
             case .privacy:
                 Section {
                     PrivacySettingsView()

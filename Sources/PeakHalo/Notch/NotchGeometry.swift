@@ -32,6 +32,33 @@ enum NotchGeometry {
         )
     }
 
+    static func menuBarPanelFrame(
+        size: CGSize,
+        anchorRect: NSRect,
+        on screen: NSScreen
+    ) -> NSRect {
+        let horizontalInset = CGFloat(12)
+        let verticalGap = CGFloat(8)
+        let usableFrame = screen.visibleFrame
+        let width = min(size.width, max(usableFrame.width - horizontalInset * 2, 320))
+        let height = min(size.height, max(usableFrame.height - verticalGap * 2, 220))
+        let minX = usableFrame.minX + horizontalInset
+        let maxX = usableFrame.maxX - horizontalInset - width
+        let proposedX = anchorRect.midX - width / 2
+        let x = clamp(proposedX, min: minX, max: maxX)
+        let minY = usableFrame.minY + verticalGap
+        let maxY = usableFrame.maxY - verticalGap - height
+        let proposedY = anchorRect.minY - verticalGap - height
+        let y = clamp(proposedY, min: minY, max: maxY)
+
+        return NSRect(
+            x: x,
+            y: y,
+            width: width,
+            height: height
+        )
+    }
+
     private static func closedSize(for screen: NSScreen, style: NotchAppearanceStyle) -> CGSize {
         let menuBarHeight = inferredMenuBarHeight(for: screen)
         let baseHeight = min(max(menuBarHeight, 24), 30)
@@ -68,5 +95,10 @@ enum NotchGeometry {
         }
 
         return max(0, screen.frame.width - leftWidth - rightWidth + 4)
+    }
+
+    private static func clamp(_ value: CGFloat, min minimum: CGFloat, max maximum: CGFloat) -> CGFloat {
+        guard minimum <= maximum else { return minimum }
+        return min(max(value, minimum), maximum)
     }
 }

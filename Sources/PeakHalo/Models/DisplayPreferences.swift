@@ -27,6 +27,31 @@ enum NotchAppearanceStyle: String, CaseIterable, Identifiable {
     }
 }
 
+enum PanelActivationMode: String, CaseIterable, Identifiable {
+    case notchHover
+    case menuBarIcon
+
+    var id: String { rawValue }
+
+    var localizedName: LocalizedStringKey {
+        switch self {
+        case .notchHover:
+            "Notch Hover"
+        case .menuBarIcon:
+            "Menu Bar Icon"
+        }
+    }
+
+    var localizedDescription: LocalizedStringKey {
+        switch self {
+        case .notchHover:
+            "Move the pointer into the notch or island to expand the controls."
+        case .menuBarIcon:
+            "Click the menu bar icon to expand or collapse the controls."
+        }
+    }
+}
+
 @MainActor
 final class DisplayPreferencesStore: ObservableObject {
     static let shared = DisplayPreferencesStore()
@@ -53,6 +78,12 @@ final class DisplayPreferencesStore: ObservableObject {
         }
     }
 
+    @Published var panelActivationMode: PanelActivationMode {
+        didSet {
+            defaults.set(panelActivationMode.rawValue, forKey: Keys.panelActivationMode)
+        }
+    }
+
     @Published var hideFromScreenCapture: Bool {
         didSet {
             defaults.set(hideFromScreenCapture, forKey: Keys.hideFromScreenCapture)
@@ -65,6 +96,7 @@ final class DisplayPreferencesStore: ObservableObject {
         static let showOnAllDisplays = "display.showOnAllDisplays"
         static let selectedDisplayID = "display.selectedDisplayID"
         static let appearanceStyle = "display.appearanceStyle"
+        static let panelActivationMode = "display.panelActivationMode"
         static let hideFromScreenCapture = "privacy.hideFromScreenCapture"
     }
 
@@ -80,6 +112,13 @@ final class DisplayPreferencesStore: ObservableObject {
             appearanceStyle = storedStyle
         } else {
             appearanceStyle = .standardNotch
+        }
+
+        if let rawMode = defaults.string(forKey: Keys.panelActivationMode),
+           let storedMode = PanelActivationMode(rawValue: rawMode) {
+            panelActivationMode = storedMode
+        } else {
+            panelActivationMode = .notchHover
         }
 
         hideFromScreenCapture = defaults.bool(forKey: Keys.hideFromScreenCapture)

@@ -26,6 +26,44 @@ struct DisplaySettingsView: View {
             .onChange(of: displayService.displays) { _, _ in
                 ensureValidDisplaySelection()
             }
+
+            Divider()
+
+            settingsHeader(
+                title: "Display Style",
+                subtitle: "Switch between the edge-attached notch and the floating island."
+            )
+
+            Picker("Main screen style", selection: $preferences.appearanceStyle) {
+                ForEach(NotchAppearanceStyle.allCases) { style in
+                    Text(style.localizedName)
+                        .tag(style)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(preferences.appearanceStyle.localizedDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+
+            settingsHeader(
+                title: "Panel Opening",
+                subtitle: "Choose how the control panel is expanded."
+            )
+
+            Picker("Open control panel with", selection: $preferences.panelActivationMode) {
+                ForEach(PanelActivationMode.allCases) { mode in
+                    Text(mode.localizedName)
+                        .tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(preferences.panelActivationMode.localizedDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

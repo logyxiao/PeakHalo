@@ -1,5 +1,6 @@
 import AppKit
 import CoreAudio
+import Darwin
 import Foundation
 
 @MainActor
@@ -25,6 +26,10 @@ final class AudioControlStore: ObservableObject {
         outputDevices.first { $0.isDefault }
     }
 
+    var canControlAppAudio: Bool {
+        captureSupport.allowsAppAudioControl
+    }
+
     private init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         captureSupport = Self.currentCaptureSupport()
@@ -36,6 +41,7 @@ final class AudioControlStore: ObservableObject {
     }
 
     func startMonitoring() {
+        refreshCaptureSupport()
         refreshIfNeeded()
         processService.startMonitoring { [weak self] in
             Task { @MainActor in
@@ -70,6 +76,7 @@ final class AudioControlStore: ObservableObject {
     func refresh() {
         guard !isRefreshing else { return }
 
+        refreshCaptureSupport()
         isRefreshing = true
         worker.refresh(service: service, processService: processService) { [weak self] result in
             Task { @MainActor in
@@ -131,6 +138,11 @@ final class AudioControlStore: ObservableObject {
     }
 
     func setAppVolume(_ value: Double, itemID: String) {
+        guard canControlAppAudio else {
+            showAppAudioPermissionMessage()
+            return
+        }
+
         updateAppItem(itemID) { item in
             item.volume = Self.clamp(value)
         }
@@ -138,6 +150,11 @@ final class AudioControlStore: ObservableObject {
     }
 
     func setAppMuted(_ isMuted: Bool, itemID: String) {
+        guard canControlAppAudio else {
+            showAppAudioPermissionMessage()
+            return
+        }
+
         updateAppItem(itemID) { item in
             item.isMuted = isMuted
         }
@@ -145,6 +162,11 @@ final class AudioControlStore: ObservableObject {
     }
 
     func setAppBoost(_ boost: AudioBoostLevel, itemID: String) {
+        guard canControlAppAudio else {
+            showAppAudioPermissionMessage()
+            return
+        }
+
         updateAppItem(itemID) { item in
             item.boost = boost
         }
@@ -152,6 +174,11 @@ final class AudioControlStore: ObservableObject {
     }
 
     func setAppOutputDevice(_ outputDeviceUID: String?, itemID: String) {
+        guard canControlAppAudio else {
+            showAppAudioPermissionMessage()
+            return
+        }
+
         updateAppItem(itemID) { item in
             item.outputDeviceUID = outputDeviceUID
         }
@@ -173,6 +200,11 @@ final class AudioControlStore: ObservableObject {
     }
 
     func toggleProcessing(itemID: String) {
+        guard canControlAppAudio else {
+            showAppAudioPermissionMessage()
+            return
+        }
+
         if processingAppIDs.contains(itemID) {
             deactivateProcessing(itemID: itemID)
             return
@@ -194,27 +226,42 @@ final class AudioControlStore: ObservableObject {
     }
 
     func togglePinned(itemID: String) {
-        updateAppItem(itemID) { item in
+        updateAppItem(itemID, showSavedMessage: false) { item in
             item.isPinned.toggle()
         }
         refresh()
     }
 
     func toggleIgnored(itemID: String) {
-        updateAppItem(itemID) { item in
+        updateAppItem(itemID, showSavedMessage: false) { item in
             item.isIgnored.toggle()
+        }
+        appItems = sortedAppItems(appItems)
+    }
+
+    func refreshCaptureSupport() {
+        let nextState = Self.currentCaptureSupport()
+        captureSupport = nextState
+
+        if !nextState.allowsAppAudioControl, !processingAppIDs.isEmpty {
+            processTapService.deactivateAll()
+            processingAppIDs.removeAll()
+            appItems = sortedAppItems(appItems)
         }
     }
 
     private func updateAppItem(
         _ itemID: String,
+        showSavedMessage: Bool = true,
         update: (inout AudioAppVolumeItem) -> Void
     ) {
         guard let index = appItems.firstIndex(where: { $0.id == itemID }) else { return }
 
         update(&appItems[index])
         saveSettings(for: appItems[index])
-        lastMessage = String(localized: "Per-app volume settings are saved locally until audio capture is enabled.")
+        if showSavedMessage {
+            lastMessage = nil
+        }
     }
 
     private func refreshAppItems(audioProcesses: [AudioProcessInfo]) {
@@ -291,7 +338,7 @@ final class AudioControlStore: ObservableObject {
             items = runningApps.prefix(5).map(audioItem(for:))
         }
 
-        appItems = items
+        appItems = sortedAppItems(items)
         synchronizeProcessing(previousItems: previousItems, currentItems: items)
     }
 
@@ -317,7 +364,7 @@ final class AudioControlStore: ObservableObject {
             audioProcessObjectIDs: processes.map(\.objectID),
             icon: app?.icon,
             isRunning: app != nil,
-            isAudible: !processes.isEmpty,
+            isAudible: processes.contains { $0.isRunningOutput },
             volume: settings.volume,
             isMuted: settings.isMuted,
             boost: boostLevel(for: settings.boost),
@@ -386,11 +433,45 @@ final class AudioControlStore: ObservableObject {
         AudioBoostLevel.allCases.first { $0.rawValue == value } ?? .x1
     }
 
+    private func sortedAppItems(_ items: [AudioAppVolumeItem]) -> [AudioAppVolumeItem] {
+        items.sorted { lhs, rhs in
+            if lhs.isIgnored != rhs.isIgnored {
+                return !lhs.isIgnored
+            }
+
+            if lhs.isAudible != rhs.isAudible {
+                return lhs.isAudible
+            }
+
+            let lhsIsProcessing = processingAppIDs.contains(lhs.id)
+            let rhsIsProcessing = processingAppIDs.contains(rhs.id)
+            if lhsIsProcessing != rhsIsProcessing {
+                return lhsIsProcessing
+            }
+
+            if lhs.isPinned != rhs.isPinned {
+                return lhs.isPinned
+            }
+
+            if lhs.isRunning != rhs.isRunning {
+                return lhs.isRunning
+            }
+
+            let nameComparison = lhs.name.localizedStandardCompare(rhs.name)
+            if nameComparison != .orderedSame {
+                return nameComparison == .orderedAscending
+            }
+
+            return lhs.id < rhs.id
+        }
+    }
+
     private func settingsKey(for id: String) -> String {
         "audio.app.settings.\(id)"
     }
 
     private func updateProcessingState(itemID: String) {
+        guard canControlAppAudio else { return }
         guard processingAppIDs.contains(itemID),
               let item = appItems.first(where: { $0.id == itemID }) else {
             return
@@ -405,6 +486,7 @@ final class AudioControlStore: ObservableObject {
     }
 
     private func restartProcessing(itemID: String) {
+        guard canControlAppAudio else { return }
         guard let item = appItems.first(where: { $0.id == itemID }) else { return }
 
         processTapService.deactivate(itemID: itemID) { [weak self] result in
@@ -458,6 +540,11 @@ final class AudioControlStore: ObservableObject {
                 processingAppIDs.remove(result.itemID)
                 lastMessage = nil
             }
+            appItems = sortedAppItems(appItems)
+            return
+        }
+
+        if applyPermissionFailureIfNeeded(result) {
             return
         }
 
@@ -483,6 +570,8 @@ final class AudioControlStore: ObservableObject {
         previousItems: [String: AudioAppVolumeItem],
         currentItems: [AudioAppVolumeItem]
     ) {
+        guard canControlAppAudio else { return }
+
         let currentItemsByID = Dictionary(
             currentItems.map { ($0.id, $0) },
             uniquingKeysWith: { current, _ in current }
@@ -518,10 +607,69 @@ final class AudioControlStore: ObservableObject {
 
     private static func currentCaptureSupport() -> AudioCaptureSupportState {
         if #available(macOS 14.4, *) {
-            return .available
+            switch AudioCapturePermissionProbe.preflight() {
+            case .authorized, .unknown:
+                return .available
+            case .denied:
+                return .permissionRequired(String(localized: "Grant Screen & System Audio Recording permission to adjust per-app volume."))
+            }
         }
 
         return .unsupported(String(localized: "Per-app volume requires macOS 14.4 or later."))
+    }
+
+    private func showAppAudioPermissionMessage() {
+        lastMessage = captureSupport.message ?? String(localized: "Grant Screen & System Audio Recording permission to adjust per-app volume.")
+    }
+
+    private func applyPermissionFailureIfNeeded(_ result: AudioProcessTapResult) -> Bool {
+        guard result.statusCode == kAudioDevicePermissionsError else {
+            return false
+        }
+
+        let message = String(localized: "Grant Screen & System Audio Recording permission to adjust per-app volume.")
+        captureSupport = .permissionRequired(message)
+        lastMessage = message
+        return true
+    }
+}
+
+private enum AudioCapturePermissionStatus {
+    case unknown
+    case authorized
+    case denied
+}
+
+private enum AudioCapturePermissionProbe {
+    private static let tccServiceAudioCapture = "kTCCServiceAudioCapture" as CFString
+    private typealias PreflightFunction = @convention(c) (CFString, CFDictionary?) -> Int
+
+    private static let tccHandle: UnsafeMutableRawPointer? = {
+        dlopen("/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC", RTLD_NOW)
+    }()
+
+    private static let preflightFunction: PreflightFunction? = {
+        guard let tccHandle,
+              let symbol = dlsym(tccHandle, "TCCAccessPreflight") else {
+            return nil
+        }
+
+        return unsafeBitCast(symbol, to: PreflightFunction.self)
+    }()
+
+    static func preflight() -> AudioCapturePermissionStatus {
+        guard let preflightFunction else {
+            return .unknown
+        }
+
+        switch preflightFunction(tccServiceAudioCapture, nil) {
+        case 0:
+            return .authorized
+        case 1:
+            return .denied
+        default:
+            return .unknown
+        }
     }
 }
 

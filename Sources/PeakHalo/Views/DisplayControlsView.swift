@@ -4,6 +4,7 @@ import SwiftUI
 struct DisplayControlsView: View {
     let compact: Bool
     @ObservedObject private var controller = DisplayControlController.shared
+    @Environment(\.colorScheme) private var colorScheme
 
     private var visibleDisplays: [ControlledDisplay] {
         controller.displays
@@ -77,11 +78,12 @@ struct DisplayControlsView: View {
             Image(systemName: "sun.max.fill")
                 .font(.system(size: compact ? 13 : 15, weight: .semibold))
                 .frame(width: compact ? 22 : 24, height: compact ? 22 : 24)
-                .foregroundStyle(display.supportsBrightness ? .orange : primaryColor.opacity(0.24))
+                .foregroundStyle(display.supportsBrightness ? controlProgressColor : primaryColor.opacity(0.24))
 
             DisplayBrightnessSlider(
                 value: controller.value(for: display.id, control: .brightness),
                 isEnabled: display.supportsBrightness,
+                tint: controlProgressColor,
                 primaryColor: primaryColor,
                 secondaryColor: secondaryColor,
                 onChange: { controller.setValue($0, control: .brightness, displayID: display.id) }
@@ -106,6 +108,12 @@ struct DisplayControlsView: View {
         compact ? .white.opacity(0.52) : .secondary
     }
 
+    private var controlProgressColor: Color {
+        colorScheme == .dark
+            ? Color(red: 0.38, green: 0.80, blue: 1.0)
+            : Color(red: 0.02, green: 0.48, blue: 0.88)
+    }
+
     private func displayIconName(for display: ControlledDisplay) -> String {
         display.isBuiltIn ? "laptopcomputer" : "display"
     }
@@ -114,21 +122,21 @@ struct DisplayControlsView: View {
 private struct DisplayBrightnessSlider: View {
     let value: Double
     let isEnabled: Bool
+    let tint: Color
     let primaryColor: Color
     let secondaryColor: Color
     let onChange: (Double) -> Void
 
     var body: some View {
         HStack(spacing: 9) {
-            Slider(
-                value: Binding(
-                    get: { value },
-                    set: { onChange($0) }
-                ),
-                in: 0...100
+            ControlValueSlider(
+                value: value,
+                isEnabled: isEnabled,
+                tint: tint,
+                primaryColor: primaryColor,
+                secondaryColor: secondaryColor,
+                onChange: onChange
             )
-            .tint(isEnabled ? .orange : secondaryColor)
-            .disabled(!isEnabled)
 
             Text(isEnabled ? "\(Int(value.rounded()))%" : "--")
                 .font(.caption.weight(.semibold))

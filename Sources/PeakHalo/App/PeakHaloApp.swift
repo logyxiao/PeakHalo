@@ -4,12 +4,10 @@ import SwiftUI
 @main
 struct PeakHaloApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var metricsService = SystemMetricsService.shared
 
     var body: some Scene {
-        WindowGroup("PeakHalo", id: "main") {
-            ContentView(metricsService: metricsService)
-                .frame(minWidth: 420, minHeight: 260)
+        Settings {
+            SettingsWindowView()
         }
         .commands {
             CommandGroup(replacing: .newItem) {}
@@ -19,11 +17,11 @@ struct PeakHaloApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.setActivationPolicy(.accessory)
 
         SystemMetricsService.shared.start()
         NotchWindowManager.shared.show(metricsService: SystemMetricsService.shared)
+        MenuBarStatusItemController.shared.start()
 
         Task { @MainActor in
             DisplayControlController.shared.refreshIfNeeded()
@@ -32,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        MenuBarStatusItemController.shared.stop()
         NotchWindowManager.shared.hide()
         AudioControlStore.shared.shutdown()
         SystemMetricsService.shared.stop()

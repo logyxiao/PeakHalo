@@ -13,10 +13,15 @@
 "Main Display" = "主显示器";
 "Main screen style" = "主屏幕样式";
 "Memory" = "内存";
+"Menu Bar Icon" = "菜单栏图标";
 "Metrics" = "监控指标";
+"Move the pointer into the notch or island to expand the controls." = "将鼠标移入刘海或灵动岛以展开控制面板。";
 "Notch Monitor" = "刘海监控";
+"Notch Hover" = "刘海悬停";
 "Open Notch" = "打开刘海";
+"Open control panel with" = "控制面板打开方式";
 "Overview" = "总览";
+"Panel Opening" = "面板打开方式";
 "PeakHalo" = "PeakHalo";
 "PeakHalo Settings" = "PeakHalo 设置";
 "Privacy" = "隐私";
@@ -27,6 +32,9 @@
 "Show on a specific display" = "在指定显示器上显示";
 "Standard Notch" = "标准刘海";
 "Switch between the edge-attached notch and the floating island." = "在贴边刘海和悬浮灵动岛之间切换。";
+"Choose how the control panel is expanded." = "选择控制面板的展开方式。";
+"Click the menu bar icon to expand or collapse the controls." = "点击菜单栏图标展开或收起控制面板。";
+"Toggle Panel" = "切换面板";
 "Updated %@" = "更新 %@";
 "%@ free" = "剩余 %@";
 "%d processes" = "%d 个进程";
@@ -113,7 +121,9 @@
 "Aggregate" = "聚合";
 "Audio" = "音频";
 "App Volume" = "应用音量";
+"Authorization Required" = "需要授权";
 "Boost" = "增益";
+"Check Again" = "重新检测";
 "Built-in displays use the system brightness interface. External displays try DDC/CI brightness control." = "内建屏使用系统亮度接口；外接屏会尝试 DDC/CI 亮度控制。";
 "Could not switch output device." = "无法切换输出设备。";
 "Could not create aggregate device (%d)." = "无法创建聚合音频设备（%d）。";
@@ -124,6 +134,7 @@
 "Default Output" = "默认输出";
 "Disable Processing" = "停用处理";
 "Enable Processing" = "启用处理";
+"Grant Screen & System Audio Recording permission to adjust per-app volume." = "授权“屏幕与系统音频录制”后才能调整应用单独音量。";
 "Ignore App" = "忽略应用";
 "Include App" = "包含应用";
 "Mute" = "静音";

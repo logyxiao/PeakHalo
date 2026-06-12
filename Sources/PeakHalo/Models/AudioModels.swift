@@ -65,7 +65,25 @@ struct AudioAppVolumeItem: Identifiable {
 
 enum AudioCaptureSupportState: Equatable {
     case available
+    case permissionRequired(String)
     case unsupported(String)
+
+    var allowsAppAudioControl: Bool {
+        if case .available = self {
+            return true
+        }
+
+        return false
+    }
+
+    var message: String? {
+        switch self {
+        case .available:
+            return nil
+        case .permissionRequired(let message), .unsupported(let message):
+            return message
+        }
+    }
 }
 
 struct AudioProcessInfo: Equatable {
@@ -79,4 +97,12 @@ struct AudioProcessTapResult {
     let itemID: String
     let success: Bool
     let message: String?
+    let statusCode: OSStatus?
+
+    init(itemID: String, success: Bool, message: String?, statusCode: OSStatus? = nil) {
+        self.itemID = itemID
+        self.success = success
+        self.message = message
+        self.statusCode = statusCode
+    }
 }

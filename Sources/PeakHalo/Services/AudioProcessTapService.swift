@@ -96,10 +96,12 @@ final class AudioProcessTapService {
                 self.activeTaps[itemID] = activeTap
                 completion(AudioProcessTapResult(itemID: itemID, success: true, message: nil))
             } catch {
+                let statusCode = Self.statusCode(from: error)
                 completion(AudioProcessTapResult(
                     itemID: itemID,
                     success: false,
-                    message: error.localizedDescription
+                    message: error.localizedDescription,
+                    statusCode: statusCode
                 ))
             }
         }
@@ -312,5 +314,11 @@ final class AudioProcessTapService {
                 )
             ]
         )
+    }
+
+    private static func statusCode(from error: Error) -> OSStatus? {
+        let nsError = error as NSError
+        guard nsError.domain == NSOSStatusErrorDomain else { return nil }
+        return OSStatus(nsError.code)
     }
 }

@@ -10,6 +10,8 @@ final class AppWindowPresenter {
     private init() {}
 
     func showSettingsWindow() {
+        NotchWindowManager.shared.close(animated: false)
+
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 

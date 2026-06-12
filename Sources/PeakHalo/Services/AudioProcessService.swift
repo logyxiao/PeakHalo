@@ -189,10 +189,9 @@ final class AudioProcessService {
             return nil
         }
 
-        let isRunning = boolProperty(objectID: objectID, selector: kAudioProcessPropertyIsRunning)
-            ?? boolProperty(objectID: objectID, selector: kAudioProcessPropertyIsRunningOutput)
-            ?? false
-        guard isRunning else { return nil }
+        let isRunning = boolProperty(objectID: objectID, selector: kAudioProcessPropertyIsRunning) ?? false
+        let isRunningOutput = boolProperty(objectID: objectID, selector: kAudioProcessPropertyIsRunningOutput) ?? false
+        guard isRunning || isRunningOutput else { return nil }
 
         let coreAudioBundleID = stringProperty(objectID: objectID, selector: kAudioProcessPropertyBundleID)
         let directApp = runningAppsByPID[pid]
@@ -219,7 +218,7 @@ final class AudioProcessService {
             objectID: objectID,
             processID: resolvedPID,
             bundleIdentifier: bundleIdentifier,
-            isRunningOutput: true
+            isRunningOutput: isRunningOutput
         )
     }
 
