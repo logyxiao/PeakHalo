@@ -1,0 +1,43 @@
+name: Build macOS Package
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build app and installer packages
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Build installer packages
+        env:
+          SWIFT_BUILD_CONFIGURATION: release
+        run: ./script/package_app.sh "${{ github.ref_name }}-${{ github.sha }}"
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: PeakHalo-macos-packages
+          path: |
+            dist/release/*.dmg
+            dist/release/*.pkg
+            dist/release/*.zip
+          if-no-files-found: error

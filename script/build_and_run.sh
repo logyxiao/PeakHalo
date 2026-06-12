@@ -5,6 +5,7 @@ MODE="${1:-run}"
 APP_NAME="PeakHalo"
 BUNDLE_ID="com.logyxiao.PeakHalo"
 MIN_SYSTEM_VERSION="14.0"
+BUILD_CONFIGURATION="${SWIFT_BUILD_CONFIGURATION:-debug}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -19,10 +20,12 @@ APP_ICON_SOURCE="$ROOT_DIR/Sources/PeakHalo/Resources/AppIcon.icns"
 
 cd "$ROOT_DIR"
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+if [[ "$MODE" != "--build-app" && "$MODE" != "build-app" && "$MODE" != "bundle" ]]; then
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+fi
 
-swift build
-BUILD_BIN_DIR="$(swift build --show-bin-path)"
+swift build -c "$BUILD_CONFIGURATION"
+BUILD_BIN_DIR="$(swift build -c "$BUILD_CONFIGURATION" --show-bin-path)"
 BUILD_BINARY="$BUILD_BIN_DIR/$APP_NAME"
 
 rm -rf "$APP_BUNDLE"
@@ -90,6 +93,8 @@ open_app() {
 }
 
 case "$MODE" in
+  --build-app|build-app|bundle)
+    ;;
   run)
     open_app
     ;;
@@ -110,7 +115,7 @@ case "$MODE" in
     pgrep -x "$APP_NAME" >/dev/null
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--build-app|--debug|--logs|--telemetry|--verify]" >&2
     exit 2
     ;;
 esac
