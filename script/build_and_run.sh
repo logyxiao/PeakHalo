@@ -185,8 +185,14 @@ case "$MODE" in
     ;;
   --verify|verify)
     open_app
-    sleep 1
-    pgrep -x "$APP_NAME" >/dev/null
+    for _ in {1..50}; do
+      if pgrep -f "$APP_BINARY" >/dev/null; then
+        exit 0
+      fi
+      sleep 0.1
+    done
+    echo "$APP_BUNDLE did not start successfully" >&2
+    exit 1
     ;;
   *)
     echo "usage: $0 [run|--build-app|--debug|--logs|--telemetry|--verify]" >&2

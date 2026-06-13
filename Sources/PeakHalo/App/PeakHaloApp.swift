@@ -4,10 +4,12 @@ import SwiftUI
 @main
 struct PeakHaloApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @ObservedObject private var languageStore = AppLanguageStore.shared
 
     var body: some Scene {
         Settings {
             SettingsWindowView()
+                .id(languageStore.language.rawValue)
         }
         .commands {
             CommandGroup(replacing: .newItem) {}

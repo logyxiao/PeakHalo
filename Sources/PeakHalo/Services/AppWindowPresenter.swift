@@ -13,7 +13,7 @@ final class AppWindowPresenter {
     private init() {
         languageStore.$language
             .sink { [weak self] language in
-                self?.refreshSettingsWindowTitle(language: language)
+                self?.refreshSettingsWindow(language: language)
             }
             .store(in: &cancellables)
     }
@@ -53,10 +53,13 @@ final class AppWindowPresenter {
         window.makeKeyAndOrderFront(nil)
     }
 
-    private func refreshSettingsWindowTitle(language: AppLanguage? = nil) {
-        settingsWindowController?.window?.title = AppLocalization.localizedString(
+    private func refreshSettingsWindow(language: AppLanguage? = nil) {
+        guard let window = settingsWindowController?.window else { return }
+
+        window.title = AppLocalization.localizedString(
             "PeakHalo Settings",
             language: language ?? languageStore.language
         )
+        window.contentView = NSHostingView(rootView: SettingsWindowView())
     }
 }

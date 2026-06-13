@@ -6,6 +6,8 @@ import Foundation
 final class SingleInstanceLock {
     static let shared = SingleInstanceLock()
 
+    private static let bundleIdentifier = "com.logyxiao.PeakHalo"
+    private static let executableName = "PeakHalo"
     private var lockFileDescriptor: Int32 = -1
 
     private init() {}
@@ -13,6 +15,9 @@ final class SingleInstanceLock {
     func acquireReplacingOtherInstances(timeout: TimeInterval = 1.5) -> Bool {
         if acquire() {
             terminateOtherInstances()
+            waitForOtherInstancesToExit(until: Date().addingTimeInterval(timeout * 0.5))
+            terminateOtherInstances(force: true)
+            waitForOtherInstancesToExit(until: Date().addingTimeInterval(timeout * 0.5))
             return true
         }
 
@@ -55,8 +60,7 @@ final class SingleInstanceLock {
 
         for application in NSWorkspace.shared.runningApplications {
             guard application.processIdentifier != currentProcessID,
-                  application.executableURL?.lastPathComponent == "PeakHalo"
-                    || application.localizedName == "PeakHalo" else {
+                  isPeakHaloApplication(application) else {
                 continue
             }
 
@@ -66,6 +70,60 @@ final class SingleInstanceLock {
                 application.terminate()
             }
         }
+
+        terminateProcessPathMatches(currentProcessID: currentProcessID, force: force)
+    }
+
+    private func isPeakHaloApplication(_ application: NSRunningApplication) -> Bool {
+        application.bundleIdentifier == Self.bundleIdentifier
+            || application.executableURL?.lastPathComponent == Self.executableName
+            || application.localizedName == Self.executableName
+    }
+
+    private func terminateProcessPathMatches(currentProcessID: pid_t, force: Bool) {
+        let signal = force ? SIGKILL : SIGTERM
+
+        for processID in peakHaloProcessIDs() where processID != currentProcessID {
+            kill(processID, signal)
+        }
+    }
+
+    private func peakHaloProcessIDs() -> [pid_t] {
+        let byteCount = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
+        guard byteCount > 0 else { return [] }
+
+        let processCount = Int(byteCount) / MemoryLayout<pid_t>.stride
+        var processIDs = Array(repeating: pid_t(0), count: processCount)
+        let filledByteCount = processIDs.withUnsafeMutableBufferPointer { buffer in
+            proc_listpids(
+                UInt32(PROC_ALL_PIDS),
+                0,
+                buffer.baseAddress,
+                Int32(buffer.count * MemoryLayout<pid_t>.stride)
+            )
+        }
+        guard filledByteCount > 0 else { return [] }
+
+        return processIDs
+            .prefix(Int(filledByteCount) / MemoryLayout<pid_t>.stride)
+            .filter { processID in
+                guard processID > 0,
+                      let path = executablePath(for: processID) else {
+                    return false
+                }
+
+                return URL(fileURLWithPath: path).lastPathComponent == Self.executableName
+            }
+    }
+
+    private func executablePath(for processID: pid_t) -> String? {
+        var buffer = Array(repeating: CChar(0), count: Int(MAXPATHLEN) * 4)
+        let byteCount = buffer.withUnsafeMutableBufferPointer { buffer in
+            proc_pidpath(processID, buffer.baseAddress, UInt32(buffer.count))
+        }
+        guard byteCount > 0 else { return nil }
+
+        return String(cString: buffer)
     }
 
     private func waitForLock(until deadline: Date) -> Bool {
@@ -78,5 +136,18 @@ final class SingleInstanceLock {
         }
 
         return acquire()
+    }
+
+    @discardableResult
+    private func waitForOtherInstancesToExit(until deadline: Date) -> Bool {
+        while Date() < deadline {
+            if peakHaloProcessIDs().allSatisfy({ $0 == getpid() }) {
+                return true
+            }
+
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+
+        return peakHaloProcessIDs().allSatisfy { $0 == getpid() }
     }
 }
