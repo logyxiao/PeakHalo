@@ -117,40 +117,7 @@ final class MenuBarStatusItemController: NSObject {
     }
 
     private static func makeStatusBarIcon() -> NSImage {
-        if let menuBarIcon = loadResourceImage(named: "MenuBarIcon", extension: "png") {
-            menuBarIcon.size = statusIconSize
-            menuBarIcon.isTemplate = true
-            menuBarIcon.accessibilityDescription = AppLocalization.localizedString("PeakHalo", language: .system)
-            return menuBarIcon
-        }
-
-        return makeLogoStatusBarIcon()
-    }
-
-    private static func loadResourceImage(named name: String, extension fileExtension: String) -> NSImage? {
-        if let url = Bundle.main.url(forResource: name, withExtension: fileExtension),
-           let image = NSImage(contentsOf: url) {
-            return image
-        }
-
-        guard let resourceURL = Bundle.main.resourceURL,
-              let resourceURLs = try? FileManager.default.contentsOfDirectory(
-                at: resourceURL,
-                includingPropertiesForKeys: nil
-              ) else {
-            return nil
-        }
-
-        for bundleURL in resourceURLs where bundleURL.pathExtension == "bundle" {
-            guard let bundle = Bundle(url: bundleURL),
-                  let url = bundle.url(forResource: name, withExtension: fileExtension),
-                  let image = NSImage(contentsOf: url) else {
-                continue
-            }
-            return image
-        }
-
-        return nil
+        makeLogoStatusBarIcon()
     }
 
     private static func makeLogoStatusBarIcon() -> NSImage {
