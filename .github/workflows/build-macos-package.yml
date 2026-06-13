@@ -10,7 +10,10 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build:
@@ -20,20 +23,27 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Show toolchain
         run: |
           xcodebuild -version
           swift --version
+          ls -la script
 
       - name: Build installer packages
         env:
           SWIFT_BUILD_CONFIGURATION: release
-        run: ./script/package_app.sh "${{ github.ref_name }}-${{ github.sha }}"
+          PACKAGE_VERSION: ${{ github.ref_name }}-${{ github.sha }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          bash ./script/package_app.sh "$PACKAGE_VERSION"
 
       - name: Upload packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: PeakHalo-macos-packages
           path: |
@@ -41,3 +51,18 @@ jobs:
             dist/release/*.pkg
             dist/release/*.zip
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/release/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/release/* \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi

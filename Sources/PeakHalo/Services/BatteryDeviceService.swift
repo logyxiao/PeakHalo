@@ -4,7 +4,7 @@ import IOKit.ps
 import IOBluetooth
 import ObjectiveC.runtime
 
-final class BatteryDeviceService {
+final class BatteryDeviceService: @unchecked Sendable {
     private let computerSampler = BatteryUsageSampler()
 
     func devices() -> [BatteryDevice] {

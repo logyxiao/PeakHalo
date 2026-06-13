@@ -19,8 +19,19 @@ version_from_git() {
   fi
 }
 
+short_version() {
+  local version="$1"
+  if [[ "$version" =~ ^v?([0-9]+(\.[0-9]+){0,2}) ]]; then
+    printf "%s" "${BASH_REMATCH[1]}"
+  else
+    printf "0.1.0"
+  fi
+}
+
 VERSION="${1:-$(version_from_git)}"
 SAFE_VERSION="$(printf "%s" "$VERSION" | tr -c 'A-Za-z0-9._-' '-')"
+APP_VERSION="${APP_VERSION:-$(short_version "$VERSION")}"
+APP_BUILD="${APP_BUILD:-$SAFE_VERSION}"
 DMG_ROOT="$PACKAGE_DIR/dmg-root"
 ZIP_PATH="$RELEASE_DIR/$APP_NAME-$SAFE_VERSION.zip"
 DMG_PATH="$RELEASE_DIR/$APP_NAME-$SAFE_VERSION.dmg"
@@ -29,7 +40,10 @@ PKG_PATH="$RELEASE_DIR/$APP_NAME-$SAFE_VERSION.pkg"
 rm -rf "$PACKAGE_DIR" "$RELEASE_DIR"
 mkdir -p "$DMG_ROOT" "$RELEASE_DIR"
 
-SWIFT_BUILD_CONFIGURATION="${SWIFT_BUILD_CONFIGURATION:-release}" "$ROOT_DIR/script/build_and_run.sh" --build-app
+APP_VERSION="$APP_VERSION" \
+APP_BUILD="$APP_BUILD" \
+SWIFT_BUILD_CONFIGURATION="${SWIFT_BUILD_CONFIGURATION:-release}" \
+  bash "$ROOT_DIR/script/build_and_run.sh" --build-app
 
 codesign --verify --deep --strict "$APP_BUNDLE"
 

@@ -39,7 +39,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .metrics:
             "metrics cpu gpu memory monitor network storage battery apps processes quit force"
         case .about:
-            "about version app"
+            "about version build app update github release download"
         }
     }
 

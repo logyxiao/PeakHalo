@@ -1,6 +1,6 @@
 import Foundation
 
-enum BatteryDeviceKind: String, CaseIterable {
+enum BatteryDeviceKind: String, CaseIterable, Sendable {
     case computer
     case headphones
     case trackpad
@@ -43,7 +43,7 @@ enum BatteryDeviceKind: String, CaseIterable {
     }
 }
 
-struct BatteryDevice: Identifiable, Equatable {
+struct BatteryDevice: Identifiable, Equatable, Sendable {
     let id: String
     let name: String
     let kind: BatteryDeviceKind

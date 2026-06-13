@@ -73,6 +73,8 @@ swift build
 
 仓库也包含 GitHub Actions 工作流。推送任意分支、创建 Pull Request、推送 `v*` 标签或手动触发工作流时，会自动构建安装包并上传 artifacts。
 
+推送 `v*` 标签时，工作流还会把安装包发布到同名 GitHub Release。应用内“关于”页的更新检查会读取 GitHub Releases，并优先打开 `.dmg`、`.pkg` 或 `.zip` 安装包下载链接。
+
 ## 项目结构
 
 ```text
@@ -159,6 +161,8 @@ The script builds a release app and writes outputs to `dist/release`:
 - `PeakHalo-*.zip`
 
 The repository also includes a GitHub Actions workflow. Pushes to any branch, pull requests, `v*` tags, and manual workflow runs automatically build installer packages and upload them as artifacts.
+
+When a `v*` tag is pushed, the workflow also publishes the packages to the matching GitHub Release. The in-app update check in About reads GitHub Releases and prefers `.dmg`, `.pkg`, then `.zip` download links.
 
 ## Project Layout
 

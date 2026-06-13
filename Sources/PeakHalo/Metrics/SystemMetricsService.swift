@@ -43,7 +43,7 @@ struct SystemMetricsSnapshot: Equatable {
 }
 
 @MainActor
-final class SystemMetricsService: ObservableObject {
+final class SystemMetricsService: NSObject, ObservableObject {
     static let shared = SystemMetricsService()
 
     @Published private(set) var snapshot: SystemMetricsSnapshot = .zero
@@ -62,21 +62,21 @@ final class SystemMetricsService: ObservableObject {
     private let appKiller = AppKiller()
     private var lastProcessSampleDate: Date?
 
-    private init() {}
-
-    deinit {
-        timer?.invalidate()
+    private override init() {
+        super.init()
     }
 
     func start() {
         guard timer == nil else { return }
 
         update()
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.update()
-            }
-        }
+        timer = Timer.scheduledTimer(
+            timeInterval: 1,
+            target: self,
+            selector: #selector(timerDidFire(_:)),
+            userInfo: nil,
+            repeats: true
+        )
     }
 
     func stop() {
@@ -121,6 +121,10 @@ final class SystemMetricsService: ObservableObject {
             stats: stats,
             updatedAt: stats.timestamp
         )
+    }
+
+    @objc private func timerDidFire(_ timer: Timer) {
+        update()
     }
 
     func terminate(_ item: ProcessResourceItem, force: Bool) {

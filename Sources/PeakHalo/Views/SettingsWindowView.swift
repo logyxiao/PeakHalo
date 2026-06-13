@@ -117,13 +117,7 @@ struct SettingsWindowView: View {
                 }
             case .about:
                 Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("PeakHalo")
-                            .font(.title3.weight(.semibold))
-                        Text("Notch Monitor")
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 4)
+                    AboutSettingsView()
                 } header: {
                     Text("About")
                 }

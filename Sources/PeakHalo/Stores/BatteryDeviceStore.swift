@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-final class BatteryDeviceStore: ObservableObject {
+final class BatteryDeviceStore: NSObject, ObservableObject {
     static let shared = BatteryDeviceStore()
 
     @Published private(set) var devices: [BatteryDevice] = []
@@ -14,7 +14,9 @@ final class BatteryDeviceStore: ObservableObject {
     private var refreshTimer: Timer?
     private let refreshInterval: TimeInterval = 60
 
-    private init() {}
+    private override init() {
+        super.init()
+    }
 
     func refreshIfNeeded() {
         guard !hasLoaded else { return }
@@ -25,11 +27,13 @@ final class BatteryDeviceStore: ObservableObject {
         refreshIfNeeded()
         guard refreshTimer == nil else { return }
 
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.refresh()
-            }
-        }
+        refreshTimer = Timer.scheduledTimer(
+            timeInterval: refreshInterval,
+            target: self,
+            selector: #selector(refreshTimerDidFire(_:)),
+            userInfo: nil,
+            repeats: true
+        )
     }
 
     func stopMonitoring() {
@@ -41,21 +45,29 @@ final class BatteryDeviceStore: ObservableObject {
         guard !isRefreshing else { return }
 
         isRefreshing = true
-        worker.refresh(service: service) { [weak self] devices in
+        worker.refresh(service: service) { devices in
             Task { @MainActor in
-                self?.hasLoaded = true
-                self?.devices = devices
-                self?.isRefreshing = false
-                self?.lastMessage = devices.isEmpty ? String(localized: "No battery devices found.") : nil
+                BatteryDeviceStore.shared.applyRefresh(devices)
             }
         }
     }
+
+    @objc private func refreshTimerDidFire(_ timer: Timer) {
+        refresh()
+    }
+
+    private func applyRefresh(_ devices: [BatteryDevice]) {
+        hasLoaded = true
+        self.devices = devices
+        isRefreshing = false
+        lastMessage = devices.isEmpty ? String(localized: "No battery devices found.") : nil
+    }
 }
 
-private final class BatteryDeviceWorker {
+private final class BatteryDeviceWorker: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.peakhalo.battery-devices", qos: .utility)
 
-    func refresh(service: BatteryDeviceService, completion: @escaping ([BatteryDevice]) -> Void) {
+    func refresh(service: BatteryDeviceService, completion: @Sendable @escaping ([BatteryDevice]) -> Void) {
         queue.async {
             completion(service.devices())
         }

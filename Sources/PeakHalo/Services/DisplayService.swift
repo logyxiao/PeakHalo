@@ -2,30 +2,25 @@ import AppKit
 import CoreGraphics
 
 @MainActor
-final class DisplayService: ObservableObject {
+final class DisplayService: NSObject, ObservableObject {
     static let shared = DisplayService()
 
     @Published private(set) var displays: [DisplayInfo] = []
 
-    private var observer: NSObjectProtocol?
+    private override init() {
+        super.init()
 
-    private init() {
         refresh()
-        observer = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.refresh()
-            }
-        }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(screenParametersDidChange(_:)),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
     }
 
     deinit {
-        if let observer {
-            NotificationCenter.default.removeObserver(observer)
-        }
+        NotificationCenter.default.removeObserver(self)
     }
 
     func refresh() {
@@ -70,5 +65,9 @@ final class DisplayService: ObservableObject {
         }
 
         return NSScreen.main?.peakHaloDisplayID ?? NSScreen.screens.first?.peakHaloDisplayID
+    }
+
+    @objc private func screenParametersDidChange(_ notification: Notification) {
+        refresh()
     }
 }
