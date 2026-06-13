@@ -1,16 +1,13 @@
 "Appearance" = "外观";
 "About" = "关于";
 "Classic notch shape attached to the top edge of the screen." = "贴合屏幕顶部边缘的经典刘海形态。";
-"Control whether PeakHalo is visible in screen captures." = "控制 PeakHalo 是否出现在截图和录屏中。";
 "Choose where PeakHalo appears." = "选择 PeakHalo 显示在哪些屏幕上。";
-"Control whether PeakHalo is visible in screenshots and recordings." = "控制 PeakHalo 是否出现在截图和录屏中。";
 "Display Placement" = "显示位置";
 "Display Style" = "显示样式";
 "Display" = "显示";
 "Dynamic Island" = "灵动岛";
 "Collapsed Monitors" = "收起态监视项";
 "Floating pill shape with a small gap from the top edge." = "与顶部边缘保持间距的悬浮胶囊形态。";
-"Hide PeakHalo during screenshots and recordings" = "截图和录制时隐藏 PeakHalo";
 "Language" = "语言";
 "Follow System" = "跟随系统";
 "English" = "英语";
@@ -49,7 +46,6 @@
 "Restricted" = "受限制";
 "Screen & Audio Capture" = "屏幕与音频捕获";
 "Screen & System Audio Recording" = "屏幕与系统音频录制";
-"Screen Capture" = "截图与录屏";
 "Unknown" = "未知";
 "Unsupported" = "不支持";
 "Used to show battery levels for connected accessories." = "用于显示已连接配件的电量。";

@@ -1,16 +1,13 @@
 "Appearance" = "Appearance";
 "About" = "About";
 "Classic notch shape attached to the top edge of the screen." = "Classic notch shape attached to the top edge of the screen.";
-"Control whether PeakHalo is visible in screen captures." = "Control whether PeakHalo is visible in screen captures.";
 "Choose where PeakHalo appears." = "Choose where PeakHalo appears.";
-"Control whether PeakHalo is visible in screenshots and recordings." = "Control whether PeakHalo is visible in screenshots and recordings.";
 "Display Placement" = "Display Placement";
 "Display Style" = "Display Style";
 "Display" = "Display";
 "Dynamic Island" = "Dynamic Island";
 "Collapsed Monitors" = "Collapsed Monitors";
 "Floating pill shape with a small gap from the top edge." = "Floating pill shape with a small gap from the top edge.";
-"Hide PeakHalo during screenshots and recordings" = "Hide PeakHalo during screenshots and recordings";
 "Language" = "Language";
 "Follow System" = "Follow System";
 "English" = "English";
@@ -49,7 +46,6 @@
 "Restricted" = "Restricted";
 "Screen & Audio Capture" = "Screen & Audio Capture";
 "Screen & System Audio Recording" = "Screen & System Audio Recording";
-"Screen Capture" = "Screen Capture";
 "Unknown" = "Unknown";
 "Unsupported" = "Unsupported";
 "Used to show battery levels for connected accessories." = "Used to show battery levels for connected accessories.";

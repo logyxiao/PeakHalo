@@ -60,17 +60,6 @@ struct DisplaySettingsView: View {
             }
 
             Section {
-                Toggle(
-                    languageStore.localizedString("Hide PeakHalo during screenshots and recordings"),
-                    isOn: $preferences.hideFromScreenCapture
-                )
-            } header: {
-                Text(languageStore.localizedString("Screen Capture"))
-            } footer: {
-                Text(languageStore.localizedString("Control whether PeakHalo is visible in screenshots and recordings."))
-            }
-
-            Section {
                 LazyVGrid(
                     columns: [
                         GridItem(.flexible(), spacing: 12),

@@ -147,7 +147,6 @@ struct AppLanguageTests {
             "Bluetooth Accessory Access",
             "Open Source Credits",
             "Choose the language used by PeakHalo.",
-            "Hide PeakHalo during screenshots and recordings",
             "Click the menu bar icon to expand or collapse the controls."
         ]
 

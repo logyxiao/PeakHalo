@@ -180,7 +180,6 @@ final class NotchWindowManager {
     private func syncWindows(metricsService: SystemMetricsService, animated: Bool) {
         if preferences.panelActivationMode == .menuBarIcon, !isMenuBarPanelVisible, !isMenuBarPanelClosing {
             removeAllContexts()
-            ScreenCaptureVisibilityManager.shared.updateAllWindows()
             return
         }
 
@@ -188,7 +187,6 @@ final class NotchWindowManager {
         if preferences.panelActivationMode == .menuBarIcon {
             guard let screen = menuBarPanelScreen() else {
                 removeAllContexts()
-                ScreenCaptureVisibilityManager.shared.updateAllWindows()
                 return
             }
             screens = [screen]
@@ -232,7 +230,6 @@ final class NotchWindowManager {
             }
         }
 
-        ScreenCaptureVisibilityManager.shared.updateAllWindows()
     }
 
     private func createContext(
@@ -282,7 +279,6 @@ final class NotchWindowManager {
             .store(in: &context.cancellables)
 
         contexts[displayID] = context
-        ScreenCaptureVisibilityManager.shared.register(panel)
         updateFrame(for: context, animated: animated)
         panel.orderFrontRegardless()
     }
@@ -290,7 +286,6 @@ final class NotchWindowManager {
     private func removeContext(displayID: CGDirectDisplayID) {
         guard let context = contexts.removeValue(forKey: displayID) else { return }
 
-        ScreenCaptureVisibilityManager.shared.unregister(context.panel)
         context.panel.orderOut(nil)
         context.panel.close()
     }

@@ -129,12 +129,6 @@ final class DisplayPreferencesStore: ObservableObject {
         }
     }
 
-    @Published var hideFromScreenCapture: Bool {
-        didSet {
-            defaults.set(hideFromScreenCapture, forKey: Keys.hideFromScreenCapture)
-        }
-    }
-
     @Published var monitorLayoutStyle: MonitorLayoutStyle {
         didSet {
             defaults.set(monitorLayoutStyle.rawValue, forKey: Keys.monitorLayoutStyle)
@@ -157,7 +151,6 @@ final class DisplayPreferencesStore: ObservableObject {
         static let selectedDisplayID = "display.selectedDisplayID"
         static let appearanceStyle = "display.appearanceStyle"
         static let panelActivationMode = "display.panelActivationMode"
-        static let hideFromScreenCapture = "privacy.hideFromScreenCapture"
         static let monitorLayoutStyle = "monitor.layoutStyle"
         static let collapsedVisibleMonitors = "display.collapsedVisibleMonitors"
         static let legacyDynamicIslandVisibleMonitors = "display.dynamicIslandVisibleMonitors"
@@ -183,8 +176,6 @@ final class DisplayPreferencesStore: ObservableObject {
         } else {
             panelActivationMode = .notchHover
         }
-
-        hideFromScreenCapture = defaults.bool(forKey: Keys.hideFromScreenCapture)
 
         if let rawLayout = defaults.string(forKey: Keys.monitorLayoutStyle),
            let storedLayout = MonitorLayoutStyle(rawValue: rawLayout) {
