@@ -71,9 +71,15 @@ swift build
 - `PeakHalo-*.pkg`
 - `PeakHalo-*.zip`
 
-仓库也包含 GitHub Actions 工作流。推送任意分支、创建 Pull Request、推送 `v*` 标签或手动触发工作流时，会自动构建安装包并上传 artifacts。
+仓库也包含 GitHub Actions 工作流。推送 `v*` 标签或手动触发工作流时，会自动构建安装包并上传 artifacts。
 
-推送 `v*` 标签时，工作流还会把安装包发布到同名 GitHub Release。应用内“关于”页的更新检查会读取 GitHub Releases，并优先打开 `.dmg`、`.pkg` 或 `.zip` 安装包下载链接。
+发布新版本时，先提交所有变更，然后运行：
+
+```bash
+./script/tag_release.sh
+```
+
+脚本会读取最新的 `vX.Y.Z` tag，并自动把 patch 版本加 1 后创建和推送 annotated tag；如果仓库还没有版本 tag，则从 `v0.1.0` 开始。推送 `v*` 标签时，GitHub Actions 会自动构建安装包、上传 artifacts，并把安装包发布到同名 GitHub Release。普通分支提交不再自动触发构建。应用内“关于”页的更新检查会读取 GitHub Releases，并优先打开 `.dmg`、`.pkg` 或 `.zip` 安装包下载链接。
 
 ## 项目结构
 
@@ -160,9 +166,13 @@ The script builds a release app and writes outputs to `dist/release`:
 - `PeakHalo-*.pkg`
 - `PeakHalo-*.zip`
 
-The repository also includes a GitHub Actions workflow. Pushes to any branch, pull requests, `v*` tags, and manual workflow runs automatically build installer packages and upload them as artifacts.
+The repository also includes a GitHub Actions workflow. To publish a new version, commit all changes, then run:
 
-When a `v*` tag is pushed, the workflow also publishes the packages to the matching GitHub Release. The in-app update check in About reads GitHub Releases and prefers `.dmg`, `.pkg`, then `.zip` download links.
+```bash
+./script/tag_release.sh
+```
+
+The script reads the latest `vX.Y.Z` tag, increments the patch version by one, then creates and pushes an annotated tag. If the repository has no version tags yet, it starts at `v0.1.0`. Pushing a `v*` tag automatically builds installer packages, uploads artifacts, and publishes the packages to the matching GitHub Release. Ordinary branch commits no longer trigger package builds. The workflow can still be started manually from GitHub Actions. The in-app update check in About reads GitHub Releases and prefers `.dmg`, `.pkg`, then `.zip` download links.
 
 ## Project Layout
 

@@ -2,11 +2,8 @@ name: Build macOS Package
 
 on:
   push:
-    branches:
-      - "**"
     tags:
       - "v*"
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -36,10 +33,13 @@ jobs:
       - name: Build installer packages
         env:
           SWIFT_BUILD_CONFIGURATION: release
-          PACKAGE_VERSION: ${{ github.ref_name }}-${{ github.sha }}
         shell: bash
         run: |
           set -euxo pipefail
+          PACKAGE_VERSION="$GITHUB_REF_NAME"
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            PACKAGE_VERSION="$GITHUB_REF_NAME-$GITHUB_SHA"
+          fi
           bash ./script/package_app.sh "$PACKAGE_VERSION"
 
       - name: Upload packages
