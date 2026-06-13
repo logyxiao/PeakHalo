@@ -64,39 +64,111 @@ enum AppLocalization {
     static func localizedString(
         _ key: String,
         language: AppLanguage,
-        preferredLanguages: [String] = Locale.preferredLanguages
+        preferredLanguages: [String] = Locale.preferredLanguages,
+        searchDirectories: [URL]? = nil
     ) -> String {
         let identifier = resolvedLocalizationIdentifier(
             for: language,
             preferredLanguages: preferredLanguages
         )
 
-        guard let bundle = bundle(forLocalizationIdentifier: identifier) else {
-            return fallbackLocalizedString(key)
+        let directories = searchDirectories ?? localizationSearchDirectories()
+        guard let bundle = bundle(forLocalizationIdentifier: identifier, searchDirectories: directories) else {
+            return fallbackLocalizedString(key, searchDirectories: directories)
         }
 
         let value = bundle.localizedString(forKey: key, value: nil, table: nil)
         guard value != key else {
-            return fallbackLocalizedString(key)
+            return fallbackLocalizedString(key, searchDirectories: directories)
         }
 
         return value
     }
 
-    private static func bundle(forLocalizationIdentifier identifier: String) -> Bundle? {
+    static func bundle(
+        forLocalizationIdentifier identifier: String,
+        searchDirectories: [URL] = localizationSearchDirectories()
+    ) -> Bundle? {
         let candidates = [identifier, identifier.lowercased()]
 
-        for candidate in candidates {
-            if let path = Bundle.module.path(forResource: candidate, ofType: "lproj") {
-                return Bundle(path: path)
+        for directory in searchDirectories {
+            for candidate in candidates {
+                let directLocalizationURL = directory.appendingPathComponent(
+                    "\(candidate).lproj",
+                    isDirectory: true
+                )
+                if let bundle = Bundle(url: directLocalizationURL) {
+                    return bundle
+                }
+
+                let moduleLocalizationURL = directory
+                    .appendingPathComponent("PeakHalo_PeakHalo.bundle", isDirectory: true)
+                    .appendingPathComponent("\(candidate).lproj", isDirectory: true)
+                if let bundle = Bundle(url: moduleLocalizationURL) {
+                    return bundle
+                }
             }
         }
 
         return nil
     }
 
-    private static func fallbackLocalizedString(_ key: String) -> String {
-        guard let bundle = bundle(forLocalizationIdentifier: defaultLocalizationIdentifier) else {
+    static func localizationSearchDirectories(
+        mainBundle: Bundle = .main,
+        executablePath: String? = CommandLine.arguments.first
+    ) -> [URL] {
+        var urls: [URL] = []
+
+        if let resourceURL = mainBundle.resourceURL {
+            urls.append(resourceURL)
+        }
+
+        urls.append(mainBundle.bundleURL)
+        urls.append(contentsOf: ancestorDirectories(from: mainBundle.bundleURL))
+
+        for bundle in Bundle.allBundles + Bundle.allFrameworks {
+            if let resourceURL = bundle.resourceURL {
+                urls.append(resourceURL)
+            }
+            urls.append(contentsOf: ancestorDirectories(from: bundle.bundleURL))
+        }
+
+        if let executablePath {
+            urls.append(
+                contentsOf: ancestorDirectories(
+                    from: URL(fileURLWithPath: executablePath).deletingLastPathComponent()
+                )
+            )
+        }
+
+        var seen = Set<String>()
+        return urls.filter { url in
+            let path = url.standardizedFileURL.path
+            guard !seen.contains(path) else { return false }
+            seen.insert(path)
+            return true
+        }
+    }
+
+    private static func ancestorDirectories(from url: URL, limit: Int = 5) -> [URL] {
+        var directories: [URL] = []
+        var current = url
+
+        for _ in 0..<limit {
+            directories.append(current)
+            let parent = current.deletingLastPathComponent()
+            guard parent.path != current.path else { break }
+            current = parent
+        }
+
+        return directories
+    }
+
+    private static func fallbackLocalizedString(_ key: String, searchDirectories: [URL]) -> String {
+        guard let bundle = bundle(
+            forLocalizationIdentifier: defaultLocalizationIdentifier,
+            searchDirectories: searchDirectories
+        ) else {
             return key
         }
 
