@@ -35,7 +35,7 @@ jobs:
           SWIFT_BUILD_CONFIGURATION: release
           SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
           SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
-          REQUIRE_SPARKLE_APPCAST: "1"
+          REQUIRE_SPARKLE_APPCAST: ${{ secrets.SPARKLE_PRIVATE_ED_KEY != '' && '1' || '0' }}
           CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
         shell: bash
         run: |
