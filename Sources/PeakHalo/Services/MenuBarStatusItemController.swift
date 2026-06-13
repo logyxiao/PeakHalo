@@ -17,7 +17,10 @@ final class MenuBarStatusItemController: NSObject {
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = Self.makeStatusBarIcon()
+        item.button?.imageScaling = .scaleProportionallyDown
         item.button?.imagePosition = .imageLeft
+        item.button?.contentTintColor = .labelColor
+        item.button?.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
         item.button?.title = "PeakHalo"
         item.button?.target = self
         item.button?.action = #selector(handleStatusItemClick(_:))
@@ -111,6 +114,19 @@ final class MenuBarStatusItemController: NSObject {
     }
 
     private static func makeStatusBarIcon() -> NSImage {
+        if let image = NSImage(
+            systemSymbolName: "waveform.path.ecg",
+            accessibilityDescription: AppLocalization.localizedString("PeakHalo", language: .system)
+        ) {
+            image.isTemplate = true
+            image.size = NSSize(width: 18, height: 18)
+            return image
+        }
+
+        return makeFallbackStatusBarIcon()
+    }
+
+    private static func makeFallbackStatusBarIcon() -> NSImage {
         let size = NSSize(width: 18, height: 18)
         let image = NSImage(size: size, flipped: false) { rect in
             let strokeColor = NSColor.black.withAlphaComponent(0.92)

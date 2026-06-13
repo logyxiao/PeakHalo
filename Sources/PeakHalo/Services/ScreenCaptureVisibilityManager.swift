@@ -59,6 +59,45 @@ enum ScreenCaptureProcessDetector {
     }
 }
 
+enum ScreenCaptureWindowSharingPolicy: Equatable {
+    case included
+    case excluded
+
+    var nsWindowSharingType: NSWindow.SharingType {
+        switch self {
+        case .included:
+            .readOnly
+        case .excluded:
+            .none
+        }
+    }
+}
+
+struct ScreenCaptureWindowPresentationPolicy: Equatable {
+    let sharingPolicy: ScreenCaptureWindowSharingPolicy
+    let shouldOrderOut: Bool
+    let shouldEnsureVisible: Bool
+
+    static func resolved(
+        hideFromScreenCapture: Bool,
+        isSystemCaptureActive: Bool
+    ) -> ScreenCaptureWindowPresentationPolicy {
+        guard hideFromScreenCapture else {
+            return ScreenCaptureWindowPresentationPolicy(
+                sharingPolicy: .included,
+                shouldOrderOut: false,
+                shouldEnsureVisible: true
+            )
+        }
+
+        return ScreenCaptureWindowPresentationPolicy(
+            sharingPolicy: .excluded,
+            shouldOrderOut: isSystemCaptureActive,
+            shouldEnsureVisible: false
+        )
+    }
+}
+
 @MainActor
 final class ScreenCaptureVisibilityManager {
     static let shared = ScreenCaptureVisibilityManager()
@@ -123,13 +162,16 @@ final class ScreenCaptureVisibilityManager {
     }
 
     private func applyVisibility(to window: NSWindow) {
-        let shouldHideFromCapture = DisplayPreferencesStore.shared.hideFromScreenCapture
-        window.sharingType = shouldHideFromCapture ? .none : .readOnly
+        let presentation = ScreenCaptureWindowPresentationPolicy.resolved(
+            hideFromScreenCapture: DisplayPreferencesStore.shared.hideFromScreenCapture,
+            isSystemCaptureActive: isSystemCaptureActive
+        )
+        window.sharingType = presentation.sharingPolicy.nsWindowSharingType
 
-        if shouldHideFromCapture, isSystemCaptureActive {
+        if presentation.shouldOrderOut {
             hideWindowForActiveCapture(window)
         } else {
-            restoreWindowIfNeeded(window)
+            restoreWindowIfNeeded(window, forceVisible: presentation.shouldEnsureVisible)
         }
     }
 
@@ -141,9 +183,10 @@ final class ScreenCaptureVisibilityManager {
         window.orderOut(nil)
     }
 
-    private func restoreWindowIfNeeded(_ window: NSWindow) {
+    private func restoreWindowIfNeeded(_ window: NSWindow, forceVisible: Bool = false) {
         let identifier = ObjectIdentifier(window)
-        guard hiddenWindowIdentifiers.remove(identifier) != nil else { return }
+        let wasHiddenForCapture = hiddenWindowIdentifiers.remove(identifier) != nil
+        guard wasHiddenForCapture || (forceVisible && !window.isVisible) else { return }
 
         window.orderFrontRegardless()
     }
