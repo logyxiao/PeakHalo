@@ -51,8 +51,9 @@ final class AudioControlStore: ObservableObject {
         refreshIfNeeded()
         startProcessMonitoringIfPermitted()
         service.startDeviceMonitoring { [weak self] in
+            guard let store = self else { return }
             Task { @MainActor in
-                self?.refresh()
+                store.refresh()
             }
         }
 
@@ -61,8 +62,9 @@ final class AudioControlStore: ObservableObject {
         monitorTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(10))
+                guard let store = self else { return }
                 await MainActor.run {
-                    self?.refresh()
+                    store.refresh()
                 }
             }
         }
@@ -92,16 +94,16 @@ final class AudioControlStore: ObservableObject {
             processService: processService,
             includeAudioProcesses: captureSupport.allowsAppAudioControl
         ) { [weak self] result in
+            guard let store = self else { return }
             Task { @MainActor in
-                guard let self else { return }
-                let previousDefaultUID = self.defaultOutputDevice?.uid
-                self.hasLoaded = true
-                self.outputDevices = result.devices
-                self.refreshAppItems(audioProcesses: result.audioProcesses)
-                self.isRefreshing = false
-                self.lastMessage = result.devices.isEmpty ? String(localized: "No output devices found.") : nil
-                if self.defaultOutputDevice?.uid != previousDefaultUID {
-                    self.routeDefaultFollowingApps()
+                let previousDefaultUID = store.defaultOutputDevice?.uid
+                store.hasLoaded = true
+                store.outputDevices = result.devices
+                store.refreshAppItems(audioProcesses: result.audioProcesses)
+                store.isRefreshing = false
+                store.lastMessage = result.devices.isEmpty ? String(localized: "No output devices found.") : nil
+                if store.defaultOutputDevice?.uid != previousDefaultUID {
+                    store.routeDefaultFollowingApps()
                 }
             }
         }
@@ -111,8 +113,9 @@ final class AudioControlStore: ObservableObject {
         guard captureSupport.allowsAppAudioControl, !isProcessMonitoringActive else { return }
         isProcessMonitoringActive = true
         processService.startMonitoring { [weak self] in
+            guard let store = self else { return }
             Task { @MainActor in
-                self?.refresh()
+                store.refresh()
             }
         }
     }
@@ -148,8 +151,9 @@ final class AudioControlStore: ObservableObject {
             deviceID: deviceID,
             service: service
         ) { [weak self] result in
+            guard let store = self else { return }
             Task { @MainActor in
-                self?.applyDeviceVolumeWrite(result)
+                store.applyDeviceVolumeWrite(result)
             }
         }
     }
@@ -171,8 +175,9 @@ final class AudioControlStore: ObservableObject {
             deviceID: deviceID,
             service: service
         ) { [weak self] result in
+            guard let store = self else { return }
             Task { @MainActor in
-                self?.applyDeviceMuteWrite(result)
+                store.applyDeviceMuteWrite(result)
             }
         }
     }
@@ -605,26 +610,26 @@ final class AudioControlStore: ObservableObject {
         guard let item = appItems.first(where: { $0.id == itemID }) else { return }
 
         processTapService.deactivate(itemID: itemID) { [weak self] result in
+            guard let store = self else { return }
             Task { @MainActor in
-                guard let self else { return }
-
                 if !result.success {
-                    self.applyTapResult(result, enabling: false)
+                    store.applyTapResult(result, enabling: false)
                     return
                 }
 
-                self.processTapService.activate(
+                store.processTapService.activate(
                     itemID: itemID,
                     processObjectIDs: item.audioProcessObjectIDs,
-                    route: self.resolvedRoute(for: item),
+                    route: store.resolvedRoute(for: item),
                     volume: item.volume,
                     isMuted: item.isMuted,
                     boost: item.boost,
-                    deviceGain: self.deviceProcessingGain(for: item),
+                    deviceGain: store.deviceProcessingGain(for: item),
                     equalizer: item.equalizer
                 ) { [weak self] result in
+                    guard let store = self else { return }
                     Task { @MainActor in
-                        self?.applyTapResult(result, enabling: true)
+                        store.applyTapResult(result, enabling: true)
                     }
                 }
             }
@@ -654,8 +659,9 @@ final class AudioControlStore: ObservableObject {
             deviceGain: deviceProcessingGain(for: item),
             equalizer: item.equalizer
         ) { [weak self] result in
+            guard let store = self else { return }
             Task { @MainActor in
-                self?.applyTapResult(result, enabling: true)
+                store.applyTapResult(result, enabling: true)
             }
         }
     }
@@ -677,8 +683,9 @@ final class AudioControlStore: ObservableObject {
                 deviceGain: deviceProcessingGain(for: item),
                 equalizer: item.equalizer
             ) { [weak self] result in
+                guard let store = self else { return }
                 Task { @MainActor in
-                    self?.applyTapResult(result, enabling: true)
+                    store.applyTapResult(result, enabling: true)
                 }
             }
         }
@@ -698,8 +705,9 @@ final class AudioControlStore: ObservableObject {
 
     private func deactivateProcessing(itemID: String) {
         processTapService.deactivate(itemID: itemID) { [weak self] result in
+            guard let store = self else { return }
             Task { @MainActor in
-                self?.applyTapResult(result, enabling: false)
+                store.applyTapResult(result, enabling: false)
             }
         }
     }
