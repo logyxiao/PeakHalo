@@ -55,13 +55,20 @@ PKG_PATH="$RELEASE_DIR/$APP_NAME-$SAFE_VERSION.pkg"
 APPCAST_PATH="$RELEASE_DIR/appcast.xml"
 SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-$ROOT_DIR/.build/artifacts/sparkle/Sparkle/bin/generate_appcast}"
 
-if [[ -n "${SPARKLE_PRIVATE_ED_KEY:-}" && -z "${SPARKLE_PUBLIC_ED_KEY:-}" ]]; then
-  echo "SPARKLE_PRIVATE_ED_KEY is set but SPARKLE_PUBLIC_ED_KEY is missing." >&2
-  exit 1
+if [[ "${REQUIRE_SPARKLE_APPCAST:-0}" == "1" ]]; then
+  if [[ -z "${SPARKLE_PUBLIC_ED_KEY:-}" ]]; then
+    echo "REQUIRE_SPARKLE_APPCAST=1 but SPARKLE_PUBLIC_ED_KEY is missing." >&2
+    exit 1
+  fi
+
+  if [[ -z "${SPARKLE_PRIVATE_ED_KEY:-}" ]]; then
+    echo "REQUIRE_SPARKLE_APPCAST=1 but SPARKLE_PRIVATE_ED_KEY is missing." >&2
+    exit 1
+  fi
 fi
 
-if [[ "${REQUIRE_SPARKLE_APPCAST:-0}" == "1" && -z "${SPARKLE_PRIVATE_ED_KEY:-}" ]]; then
-  echo "REQUIRE_SPARKLE_APPCAST=1 but SPARKLE_PRIVATE_ED_KEY is missing." >&2
+if [[ -n "${SPARKLE_PRIVATE_ED_KEY:-}" && -z "${SPARKLE_PUBLIC_ED_KEY:-}" ]]; then
+  echo "SPARKLE_PRIVATE_ED_KEY is set but SPARKLE_PUBLIC_ED_KEY is missing." >&2
   exit 1
 fi
 

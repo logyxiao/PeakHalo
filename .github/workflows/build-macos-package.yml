@@ -35,7 +35,7 @@ jobs:
           SWIFT_BUILD_CONFIGURATION: release
           SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
           SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
-          REQUIRE_SPARKLE_APPCAST: ${{ secrets.SPARKLE_PRIVATE_ED_KEY != '' && '1' || '0' }}
+          REQUIRE_SPARKLE_APPCAST: ${{ startsWith(github.ref, 'refs/tags/v') && '1' || '0' }}
           CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
         shell: bash
         run: |
@@ -45,6 +45,15 @@ jobs:
             PACKAGE_VERSION="$GITHUB_REF_NAME-$GITHUB_SHA"
           fi
           bash ./script/package_app.sh "$PACKAGE_VERSION"
+
+      - name: Verify Sparkle update metadata
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -f dist/release/appcast.xml
+          plutil -extract SUPublicEDKey raw -o - dist/PeakHalo.app/Contents/Info.plist
+          plutil -extract SUFeedURL raw -o - dist/PeakHalo.app/Contents/Info.plist
 
       - name: Upload packages
         uses: actions/upload-artifact@v6
