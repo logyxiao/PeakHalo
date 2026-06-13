@@ -5,57 +5,66 @@ struct AboutSettingsView: View {
     @ObservedObject private var updateStore = AppUpdateStore.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            appSummary
+        Form {
+            Section {
+                appSummary
+            }
 
-            Divider()
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
+                    updateStatus
+                    updateActions
+                }
+                .padding(.vertical, 4)
+            } header: {
+                Text("GitHub Updates")
+            } footer: {
+                Text("Check GitHub Releases for new installer packages.")
+            }
 
-            settingsHeader(
-                title: "GitHub Updates",
-                subtitle: "Check GitHub Releases for new installer packages."
-            )
-
-            updateStatus
-            updateActions
-
-            Divider()
-
-            settingsHeader(
-                title: "Open Source Audio",
-                subtitle: "Audio controls are adapted from FineTune under GPLv3-compatible terms."
-            )
-
-            licenseSummary
+            Section {
+                licenseSummary
+            } header: {
+                Text("Open Source Credits")
+            } footer: {
+                Text("Audio controls are adapted from FineTune under GPLv3-compatible terms.")
+            }
         }
+        .formStyle(.grouped)
         .task {
             await updateStore.checkForUpdatesIfNeeded()
         }
     }
 
     private var appSummary: some View {
-        HStack(alignment: .center, spacing: 14) {
+        VStack(spacing: 8) {
             appLogo
+                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                .padding(.bottom, 4)
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text("PeakHalo")
-                    .font(.title3.weight(.semibold))
+            Text("PeakHalo")
+                .font(.title2.weight(.bold))
 
-                Text("Notch Monitor")
-                    .foregroundStyle(.secondary)
+            Text("A premium notch overlay & control center for macOS.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 20)
 
-                HStack(spacing: 8) {
-                    versionBadge(
-                        title: "Version",
-                        value: updateStore.currentVersion
-                    )
-                    versionBadge(
-                        title: "Build",
-                        value: updateStore.currentBuild
-                    )
-                }
-                .padding(.top, 2)
+            HStack(spacing: 8) {
+                versionBadge(
+                    title: "Version",
+                    value: updateStore.currentVersion
+                )
+                versionBadge(
+                    title: "Build",
+                    value: updateStore.currentBuild
+                )
             }
+            .padding(.top, 4)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
     }
 
     @ViewBuilder
@@ -64,16 +73,22 @@ struct AboutSettingsView: View {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 58, height: 58)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         } else {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.teal.opacity(0.16))
-                .frame(width: 58, height: 58)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [.teal, .blue, .indigo],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 72, height: 72)
                 .overlay {
-                    Image(systemName: "checkmark.circle")
-                        .font(.system(size: 30, weight: .medium))
-                        .foregroundStyle(.teal)
+                    Image(systemName: "waveform")
+                        .font(.system(size: 36, weight: .medium))
+                        .foregroundStyle(.white)
                 }
         }
     }
@@ -144,7 +159,7 @@ struct AboutSettingsView: View {
     }
 
     private var updateActions: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Button {
                 Task {
                     await updateStore.checkForUpdates()
@@ -160,6 +175,7 @@ struct AboutSettingsView: View {
                 Label("Download Update", systemImage: "arrow.down.circle")
             }
             .disabled(updateStore.latestUpdate?.isUpdateAvailable != true)
+            .buttonStyle(.borderedProminent)
 
             Button {
                 updateStore.openReleasePage()
@@ -167,16 +183,18 @@ struct AboutSettingsView: View {
                 Label("Open GitHub", systemImage: "arrow.up.right.square")
             }
         }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
     }
 
     private var licenseSummary: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("PeakHalo incorporates GPLv3-compatible audio-control architecture and implementation techniques derived from FineTune.")
-                .font(.caption)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Button {
                     openURL("https://github.com/ronitsingh10/FineTune")
                 } label: {
@@ -189,7 +207,10 @@ struct AboutSettingsView: View {
                     Label("GPLv3", systemImage: "doc.text")
                 }
             }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
+        .padding(.vertical, 4)
     }
 
     private func updateDescription(for info: AppUpdateInfo) -> String {

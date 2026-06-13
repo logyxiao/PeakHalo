@@ -4,6 +4,7 @@ struct NotchRootView: View {
     @ObservedObject var viewModel: NotchViewModel
     @ObservedObject var metricsService: SystemMetricsService
     @ObservedObject private var preferences = DisplayPreferencesStore.shared
+    @ObservedObject private var languageStore = AppLanguageStore.shared
 
     var body: some View {
         NotchMetricsView(
@@ -25,5 +26,6 @@ struct NotchRootView: View {
         .onTapGesture {
             viewModel.openFromTap()
         }
+        .environment(\.locale, languageStore.locale)
     }
 }

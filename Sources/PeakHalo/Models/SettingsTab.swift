@@ -3,8 +3,7 @@ import SwiftUI
 enum SettingsTab: String, CaseIterable, Identifiable {
     case display
     case controls
-    case privacy
-    case metrics
+    case permissions
     case about
 
     var id: String { rawValue }
@@ -15,10 +14,8 @@ enum SettingsTab: String, CaseIterable, Identifiable {
             "Display"
         case .controls:
             "Controls"
-        case .privacy:
-            "Privacy"
-        case .metrics:
-            "Metrics"
+        case .permissions:
+            "Permissions"
         case .about:
             "About"
         }
@@ -31,13 +28,11 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var searchText: String {
         switch self {
         case .display:
-            "display screen monitor all specific appearance style notch dynamic island panel opening menu bar icon hover"
+            "display screen monitor all specific appearance style notch dynamic island panel opening menu bar icon hover language locale english chinese system 语言 中文 英语 跟随系统"
         case .controls:
             "display controls brightness volume sound monitor"
-        case .privacy:
-            "privacy screenshot recording capture hide"
-        case .metrics:
-            "metrics cpu gpu memory monitor network storage battery apps processes quit force"
+        case .permissions:
+            "permissions authorization privacy audio capture recording bluetooth system settings"
         case .about:
             "about version build app update github release download"
         }
@@ -49,10 +44,8 @@ enum SettingsTab: String, CaseIterable, Identifiable {
             "display"
         case .controls:
             "display.2"
-        case .privacy:
-            "eye.slash"
-        case .metrics:
-            "chart.xyaxis.line"
+        case .permissions:
+            "lock.shield"
         case .about:
             "info.circle"
         }
@@ -64,10 +57,8 @@ enum SettingsTab: String, CaseIterable, Identifiable {
             .blue
         case .controls:
             .indigo
-        case .privacy:
+        case .permissions:
             .green
-        case .metrics:
-            .orange
         case .about:
             .gray
         }

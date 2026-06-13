@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsWindowView: View {
-    @ObservedObject private var metricsService = SystemMetricsService.shared
+    @ObservedObject private var languageStore = AppLanguageStore.shared
     @State private var selectedTab: SettingsTab = .display
     @State private var searchText = ""
 
@@ -10,7 +10,7 @@ struct SettingsWindowView: View {
         guard !query.isEmpty else { return SettingsTab.allCases }
 
         return SettingsTab.allCases.filter { tab in
-            String(localized: String.LocalizationValue(tab.localizationKey)).lowercased().contains(query)
+            languageStore.localizedString(tab.localizationKey).lowercased().contains(query)
                 || tab.searchText.localizedCaseInsensitiveContains(query)
         }
     }
@@ -21,46 +21,25 @@ struct SettingsWindowView: View {
 
     var body: some View {
         NavigationSplitView {
-            VStack(spacing: 12) {
-                searchField
-                    .padding(.horizontal, 12)
-                    .padding(.top, 12)
-
-                Divider()
-                    .padding(.horizontal, 12)
-
-                List(selection: selectionBinding) {
-                    Section {
-                        ForEach(filteredTabs) { tab in
-                            NavigationLink(value: tab) {
-                                sidebarRow(for: tab)
-                            }
-                        }
+            List(selection: selectionBinding) {
+                ForEach(filteredTabs) { tab in
+                    NavigationLink(value: tab) {
+                        sidebarRow(for: tab)
                     }
                 }
-                .listStyle(.sidebar)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 250)
-                .environment(\.defaultMinListRowHeight, 44)
             }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 250)
+            .environment(\.defaultMinListRowHeight, 40)
+            .searchable(text: $searchText, placement: .sidebar, prompt: "Search Settings")
         } detail: {
             detailView(for: resolvedSelection)
+                .navigationTitle(resolvedSelection.title)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .navigationSplitViewStyle(.balanced)
-        .formStyle(.grouped)
+        .environment(\.locale, languageStore.locale)
         .frame(minWidth: 720, minHeight: 540)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("Search Settings", text: $searchText)
-                .textFieldStyle(.plain)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var selectionBinding: Binding<SettingsTab> {
@@ -71,59 +50,39 @@ struct SettingsWindowView: View {
     }
 
     private func sidebarRow(for tab: SettingsTab) -> some View {
-        HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [tab.tint, tab.tint.opacity(0.72)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+                        colors: [tab.tint, tab.tint.opacity(0.85)],
+                        startPoint: .top,
+                        endPoint: .bottom
                     )
                 )
-                .frame(width: 26, height: 26)
+                .frame(width: 24, height: 24)
                 .overlay {
                     Image(systemName: tab.systemImage)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.white)
                 }
 
             Text(tab.title)
+                .font(.body)
         }
+        .padding(.vertical, 2)
     }
 
     @ViewBuilder
     private func detailView(for tab: SettingsTab) -> some View {
-        Form {
-            switch tab {
-            case .display:
-                Section {
-                    DisplaySettingsView()
-                }
-            case .controls:
-                Section {
-                    DisplayControlsView(compact: false)
-                } header: {
-                    Text("Controls")
-                }
-            case .privacy:
-                Section {
-                    PrivacySettingsView()
-                }
-            case .metrics:
-                Section {
-                    DashboardMetricsSection(metricsService: metricsService)
-                } header: {
-                    Text("Metrics")
-                }
-            case .about:
-                Section {
-                    AboutSettingsView()
-                } header: {
-                    Text("About")
-                }
-            }
+        switch tab {
+        case .display:
+            DisplaySettingsView()
+        case .controls:
+            DisplayControlsView(compact: false)
+        case .permissions:
+            PermissionsSettingsView()
+        case .about:
+            AboutSettingsView()
         }
-        .scrollContentBackground(.hidden)
-        .padding(.top, 10)
     }
 }

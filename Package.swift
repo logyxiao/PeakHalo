@@ -32,6 +32,7 @@ let package = Package(
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("AudioToolbox"),
                 .linkedFramework("CoreAudio"),
+                .linkedFramework("CoreBluetooth"),
                 .linkedFramework("CoreMedia"),
                 .linkedFramework("IOBluetooth"),
                 .linkedFramework("UserNotifications")

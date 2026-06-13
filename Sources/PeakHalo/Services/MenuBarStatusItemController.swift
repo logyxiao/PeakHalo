@@ -5,6 +5,7 @@ final class MenuBarStatusItemController: NSObject {
     static let shared = MenuBarStatusItemController()
 
     private let preferences = DisplayPreferencesStore.shared
+    private let languageStore = AppLanguageStore.shared
     private var statusItem: NSStatusItem?
 
     private override init() {
@@ -20,7 +21,7 @@ final class MenuBarStatusItemController: NSObject {
         item.button?.target = self
         item.button?.action = #selector(handleStatusItemClick(_:))
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        item.button?.toolTip = String(localized: "PeakHalo")
+        item.button?.toolTip = languageStore.localizedString("PeakHalo")
         statusItem = item
     }
 
@@ -53,14 +54,26 @@ final class MenuBarStatusItemController: NSObject {
 
         let menu = NSMenu()
         if preferences.panelActivationMode == .menuBarIcon {
-            menu.addItem(withTitle: String(localized: "Toggle Panel"), action: #selector(togglePanel), keyEquivalent: "")
+            menu.addItem(
+                withTitle: languageStore.localizedString("Toggle Panel"),
+                action: #selector(togglePanel),
+                keyEquivalent: ""
+            )
             menu.addItem(.separator())
         } else {
             NotchWindowManager.shared.close(animated: false)
         }
-        menu.addItem(withTitle: String(localized: "Settings"), action: #selector(showSettings), keyEquivalent: ",")
+        menu.addItem(
+            withTitle: languageStore.localizedString("Settings"),
+            action: #selector(showSettings),
+            keyEquivalent: ","
+        )
         menu.addItem(.separator())
-        menu.addItem(withTitle: String(localized: "Quit PeakHalo"), action: #selector(quit), keyEquivalent: "q")
+        menu.addItem(
+            withTitle: languageStore.localizedString("Quit PeakHalo"),
+            action: #selector(quit),
+            keyEquivalent: "q"
+        )
 
         for item in menu.items {
             item.target = self
@@ -133,7 +146,7 @@ final class MenuBarStatusItemController: NSObject {
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = String(localized: "PeakHalo")
+        image.accessibilityDescription = AppLocalization.localizedString("PeakHalo", language: .system)
         return image
     }
 }

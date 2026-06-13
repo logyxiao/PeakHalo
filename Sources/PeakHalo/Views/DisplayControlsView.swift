@@ -11,25 +11,55 @@ struct DisplayControlsView: View {
     }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                displayList
+        if compact {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    displayList
 
-                if let message = controller.lastMessage {
-                    Text(message)
-                        .font(.caption2)
-                        .foregroundStyle(secondaryColor)
-                        .lineLimit(2)
-                        .padding(.top, 6)
+                    if let message = controller.lastMessage {
+                        Text(message)
+                            .font(.caption2)
+                            .foregroundStyle(secondaryColor)
+                            .lineLimit(2)
+                            .padding(.top, 6)
+                    }
+                }
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: 246, alignment: .topLeading)
+            .onAppear {
+                controller.refreshIfNeeded()
+            }
+        } else {
+            Form {
+                Section {
+                    if visibleDisplays.isEmpty {
+                        Text(controller.isRefreshing ? "Scanning Displays" : "No Controllable Displays")
+                            .font(.callout)
+                            .foregroundStyle(secondaryColor)
+                            .frame(maxWidth: .infinity, minHeight: 110, alignment: .center)
+                    } else {
+                        ForEach(visibleDisplays) { display in
+                            displayBrightnessRow(display)
+                        }
+                    }
+                } header: {
+                    Text("Connected Displays")
+                } footer: {
+                    if let message = controller.lastMessage {
+                        Text(message)
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("Adjust the brightness of your connected monitors.")
+                    }
                 }
             }
-            .padding(.horizontal, compact ? 4 : 0)
-            .padding(.vertical, compact ? 2 : 0)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, maxHeight: compact ? 246 : nil, alignment: .topLeading)
-        .onAppear {
-            controller.refreshIfNeeded()
+            .formStyle(.grouped)
+            .onAppear {
+                controller.refreshIfNeeded()
+            }
         }
     }
 
@@ -37,12 +67,12 @@ struct DisplayControlsView: View {
     private var displayList: some View {
         if visibleDisplays.isEmpty {
             Text(controller.isRefreshing ? "Scanning Displays" : "No Controllable Displays")
-                .font(compact ? .caption : .callout)
+                .font(.caption)
                 .foregroundStyle(secondaryColor)
-                .frame(maxWidth: .infinity, minHeight: compact ? 64 : 110, alignment: .center)
+                .frame(maxWidth: .infinity, minHeight: 64, alignment: .center)
         } else {
-            VStack(spacing: compact ? 3 : 5) {
-                ForEach(visibleDisplays.prefix(compact ? 5 : 12)) { display in
+            VStack(spacing: 3) {
+                ForEach(visibleDisplays.prefix(5)) { display in
                     displayBrightnessRow(display)
                 }
             }
@@ -53,12 +83,12 @@ struct DisplayControlsView: View {
         HStack(spacing: compact ? 9 : 12) {
             HStack(spacing: compact ? 8 : 10) {
                 Circle()
-                    .fill(display.isBuiltIn ? Color.orange.opacity(0.95) : Color.white.opacity(0.12))
+                    .fill(display.isBuiltIn ? Color.orange.opacity(0.95) : (compact ? Color.white.opacity(0.12) : Color.primary.opacity(0.08)))
                     .frame(width: compact ? 30 : 34, height: compact ? 30 : 34)
                     .overlay {
                         Image(systemName: displayIconName(for: display))
                             .font(.system(size: compact ? 15 : 17, weight: .semibold))
-                            .foregroundStyle(display.isBuiltIn ? .white : secondaryColor)
+                            .foregroundStyle(display.isBuiltIn ? .white : (compact ? secondaryColor : .primary.opacity(0.72)))
                     }
 
                 VStack(alignment: .leading, spacing: 1) {

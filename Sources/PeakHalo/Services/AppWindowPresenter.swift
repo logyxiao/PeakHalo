@@ -1,13 +1,22 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
 final class AppWindowPresenter {
     static let shared = AppWindowPresenter()
 
+    private let languageStore = AppLanguageStore.shared
     private var settingsWindowController: NSWindowController?
+    private var cancellables = Set<AnyCancellable>()
 
-    private init() {}
+    private init() {
+        languageStore.$language
+            .sink { [weak self] _ in
+                self?.refreshSettingsWindowTitle()
+            }
+            .store(in: &cancellables)
+    }
 
     func showSettingsWindow() {
         NotchWindowManager.shared.close(animated: false)
@@ -27,7 +36,7 @@ final class AppWindowPresenter {
             backing: .buffered,
             defer: false
         )
-        window.title = String(localized: "PeakHalo Settings")
+        window.title = languageStore.localizedString("PeakHalo Settings")
         window.titlebarAppearsTransparent = false
         window.titleVisibility = .visible
         window.toolbarStyle = .unified
@@ -42,5 +51,9 @@ final class AppWindowPresenter {
         settingsWindowController = controller
         controller.showWindow(nil)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    private func refreshSettingsWindowTitle() {
+        settingsWindowController?.window?.title = languageStore.localizedString("PeakHalo Settings")
     }
 }

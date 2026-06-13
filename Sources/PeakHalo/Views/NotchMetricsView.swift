@@ -408,9 +408,7 @@ struct NotchMetricsView: View {
             return [
                 ("App", MetricFormat.bytes(snapshot.stats.memory.appBytes)),
                 ("Wired", MetricFormat.bytes(snapshot.stats.memory.wiredBytes)),
-                ("Compressed", MetricFormat.bytes(snapshot.stats.memory.compressedBytes)),
-                ("Cached", MetricFormat.bytes(snapshot.stats.memory.cachedBytes)),
-                ("Swap", MetricFormat.bytes(snapshot.stats.memory.swapUsedBytes))
+                ("Cached", MetricFormat.bytes(snapshot.stats.memory.cachedBytes))
             ]
         case .network:
             return [
