@@ -16,12 +16,17 @@ struct PeakHaloApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private enum LaunchPresentationDefaults {
+        static let didShowInitialSettingsWindow = "app.didShowInitialSettingsWindow"
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
 
         SystemMetricsService.shared.start()
         NotchWindowManager.shared.show(metricsService: SystemMetricsService.shared)
         MenuBarStatusItemController.shared.start()
+        presentInitialSettingsWindowIfNeeded()
 
         Task { @MainActor in
             DisplayControlController.shared.refreshIfNeeded()
@@ -38,5 +43,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag else { return true }
+
+        AppWindowPresenter.shared.showSettingsWindow()
+        return true
+    }
+
+    private func presentInitialSettingsWindowIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: LaunchPresentationDefaults.didShowInitialSettingsWindow) else {
+            return
+        }
+
+        defaults.set(true, forKey: LaunchPresentationDefaults.didShowInitialSettingsWindow)
+        Task { @MainActor in
+            AppWindowPresenter.shared.showSettingsWindow()
+        }
     }
 }

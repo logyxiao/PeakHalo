@@ -17,7 +17,8 @@ final class MenuBarStatusItemController: NSObject {
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = Self.makeStatusBarIcon()
-        item.button?.imagePosition = .imageOnly
+        item.button?.imagePosition = .imageLeft
+        item.button?.title = "PeakHalo"
         item.button?.target = self
         item.button?.action = #selector(handleStatusItemClick(_:))
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
