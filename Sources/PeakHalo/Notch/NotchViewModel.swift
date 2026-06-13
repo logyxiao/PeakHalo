@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 final class NotchViewModel: ObservableObject {
     @Published private(set) var state: NotchState = .closed
+    @Published private(set) var displayLayout = NotchDisplayLayout.none
     @Published var isHovering = false
 
     private var openTask: Task<Void, Never>?
@@ -13,12 +14,14 @@ final class NotchViewModel: ObservableObject {
     func open() {
         openTask?.cancel()
         closeTask?.cancel()
+        guard state != .open else { return }
         state = .open
     }
 
     func close() {
         openTask?.cancel()
         closeTask?.cancel()
+        guard state != .closed else { return }
         state = .closed
     }
 
@@ -29,6 +32,7 @@ final class NotchViewModel: ObservableObject {
     }
 
     func setHovering(_ hovering: Bool) {
+        guard isHovering != hovering else { return }
         isHovering = hovering
 
         if hovering {
@@ -36,6 +40,11 @@ final class NotchViewModel: ObservableObject {
         } else {
             scheduleClose()
         }
+    }
+
+    func updateDisplayLayout(_ layout: NotchDisplayLayout) {
+        guard displayLayout != layout else { return }
+        displayLayout = layout
     }
 
     private func scheduleOpen() {

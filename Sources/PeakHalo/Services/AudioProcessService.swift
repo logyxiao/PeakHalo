@@ -19,6 +19,9 @@ final class AudioProcessService {
         "com.apple.NotificationCenter",
         "com.apple.UserNotifications",
         "com.apple.usernotifications",
+        "com.apple.FrontBoardServices",
+        "com.apple.frontboard",
+        "com.apple.springboard",
         "com.apple.SpeechRecognitionCore",
         "com.apple.speech",
         "com.apple.dictation",
@@ -195,13 +198,12 @@ final class AudioProcessService {
 
         let coreAudioBundleID = stringProperty(objectID: objectID, selector: kAudioProcessPropertyBundleID)
         let directApp = runningAppsByPID[pid]
-        let resolvedApp: NSRunningApplication? = {
-            if directApp?.bundleURL?.pathExtension == "app" {
-                return directApp
-            }
-            return findResponsibleApp(for: pid, in: runningAppsByPID)
-        }()
+        let isRealApp = directApp?.bundleURL?.pathExtension == "app"
+        let resolvedApp = isRealApp
+            ? directApp
+            : findResponsibleApp(for: pid, in: runningAppsByPID)
         let resolvedPID = resolvedApp?.processIdentifier ?? pid
+        let isHelperBacked = resolvedPID != pid
         guard resolvedPID != getpid() else { return nil }
 
         let bundleIdentifier = resolvedApp?.bundleIdentifier ?? coreAudioBundleID
@@ -218,7 +220,10 @@ final class AudioProcessService {
             objectID: objectID,
             processID: resolvedPID,
             bundleIdentifier: bundleIdentifier,
-            isRunningOutput: isRunningOutput
+            displayName: processName.isEmpty ? nil : processName,
+            icon: resolvedApp?.icon,
+            isRunningOutput: isRunningOutput,
+            isHelperBacked: isHelperBacked
         )
     }
 

@@ -3,23 +3,44 @@ import SwiftUI
 
 struct NotchMetricsView: View {
     let state: NotchState
+    let displayLayout: NotchDisplayLayout
     @ObservedObject var metricsService: SystemMetricsService
     @ObservedObject private var preferences = DisplayPreferencesStore.shared
 
     @State private var selectedTab: NotchMetricsTab = .monitor
     @State private var expandedResource: ResourceMonitorKind = .cpu
     @State private var forceQuitItem: ProcessResourceItem?
+    @State private var mountsExpandedContent = false
+    @State private var showsExpandedContent = false
+    @State private var contentTransitionTask: Task<Void, Never>?
 
     private var snapshot: SystemMetricsSnapshot {
         metricsService.snapshot
     }
 
     var body: some View {
-        switch state {
-        case .closed:
+        ZStack {
             closedContent
-        case .open:
-            expandedContent
+                .opacity(showsExpandedContent ? 0 : 1)
+                .allowsHitTesting(!showsExpandedContent)
+
+            if mountsExpandedContent {
+                expandedContent
+                    .opacity(showsExpandedContent ? 1 : 0)
+                    .allowsHitTesting(showsExpandedContent)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+        .onAppear {
+            syncMountedContent(animated: false)
+        }
+        .onChange(of: state) { _, _ in
+            syncMountedContent(animated: true)
+        }
+        .onDisappear {
+            contentTransitionTask?.cancel()
+            contentTransitionTask = nil
         }
     }
 
@@ -27,13 +48,16 @@ struct NotchMetricsView: View {
         Group {
             if visibleClosedResources.isEmpty {
                 CollapsedMonitorPlaceholder()
+            } else if displayLayout.hasPhysicalNotch {
+                notchAwareClosedContent
             } else {
                 ViewThatFits(in: .horizontal) {
-                    compactResourceRow(showIcons: true)
+                    compactResourceRow(resources: visibleClosedResources, showIcons: true, showTitles: true)
                         .fixedSize(horizontal: true, vertical: false)
-                    compactResourceRow(showIcons: false)
+                    compactResourceRow(resources: visibleClosedResources, showIcons: false, showTitles: true)
                         .fixedSize(horizontal: true, vertical: false)
-                    compactResourceRow(showIcons: false)
+                    compactResourceRow(resources: visibleClosedResources, showIcons: true, showTitles: false)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
         }
@@ -47,15 +71,60 @@ struct NotchMetricsView: View {
         }
     }
 
-    private func compactResourceRow(showIcons: Bool) -> some View {
+    private var notchAwareClosedContent: some View {
+        let resources = visibleClosedResources
+        let midpoint = Int(ceil(Double(resources.count) / 2.0))
+        let leftResources = Array(resources.prefix(midpoint))
+        let rightResources = Array(resources.dropFirst(midpoint))
+
+        return HStack(spacing: 0) {
+            compactResourceCluster(resources: leftResources, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+
+            Spacer(minLength: 0)
+                .frame(width: displayLayout.centerAvoidanceWidth)
+
+            compactResourceCluster(resources: rightResources, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func compactResourceCluster(
+        resources: [ResourceMonitorKind],
+        alignment: Alignment
+    ) -> some View {
+        if resources.isEmpty {
+            Color.clear
+                .frame(width: 0, height: 1)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                compactResourceRow(resources: resources, showIcons: true, showTitles: true)
+                    .fixedSize(horizontal: true, vertical: false)
+                compactResourceRow(resources: resources, showIcons: false, showTitles: true)
+                    .fixedSize(horizontal: true, vertical: false)
+                compactResourceRow(resources: resources, showIcons: true, showTitles: false)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .frame(maxWidth: NotchDisplayLayout.closedSideContentWidth, alignment: alignment)
+        }
+    }
+
+    private func compactResourceRow(
+        resources: [ResourceMonitorKind],
+        showIcons: Bool,
+        showTitles: Bool
+    ) -> some View {
         HStack(spacing: showIcons ? 8 : 7) {
-            ForEach(visibleClosedResources) { resource in
+            ForEach(resources) { resource in
                 CompactMetricBadge(
                     title: resource.title,
                     symbol: compactSymbol(for: resource),
                     color: resource.tint,
                     value: value(for: resource),
-                    showIcon: showIcons
+                    showIcon: showIcons,
+                    showTitle: showTitles
                 )
             }
         }
@@ -87,6 +156,46 @@ struct NotchMetricsView: View {
             Button("Cancel", role: .cancel) {}
         } message: { item in
             Text(String(format: String(localized: "Force quitting %@ may lose unsaved work."), item.name))
+        }
+    }
+
+    private func syncMountedContent(animated: Bool) {
+        contentTransitionTask?.cancel()
+        contentTransitionTask = nil
+
+        switch state {
+        case .open:
+            mountsExpandedContent = true
+
+            if animated {
+                showsExpandedContent = false
+                contentTransitionTask = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(70))
+                    guard !Task.isCancelled else { return }
+
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        showsExpandedContent = true
+                    }
+                }
+            } else {
+                showsExpandedContent = true
+            }
+
+        case .closed:
+            if animated {
+                withAnimation(.easeInOut(duration: 0.10)) {
+                    showsExpandedContent = false
+                }
+
+                contentTransitionTask = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(110))
+                    guard !Task.isCancelled else { return }
+                    mountsExpandedContent = false
+                }
+            } else {
+                showsExpandedContent = false
+                mountsExpandedContent = false
+            }
         }
     }
 
@@ -711,6 +820,7 @@ private struct CompactMetricBadge: View {
     let color: Color
     let value: String
     let showIcon: Bool
+    let showTitle: Bool
 
     var body: some View {
         HStack(spacing: showIcon ? 4 : 3) {
@@ -720,9 +830,11 @@ private struct CompactMetricBadge: View {
                     .foregroundStyle(color)
             }
 
-            Text(title)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.white.opacity(0.72))
+            if showTitle {
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.72))
+            }
 
             Text(value)
                 .font(.system(size: 10, weight: .semibold, design: .rounded))

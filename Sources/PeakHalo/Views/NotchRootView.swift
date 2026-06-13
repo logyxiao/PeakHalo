@@ -8,6 +8,7 @@ struct NotchRootView: View {
     var body: some View {
         NotchMetricsView(
             state: viewModel.state,
+            displayLayout: viewModel.displayLayout,
             metricsService: metricsService
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -23,16 +24,6 @@ struct NotchRootView: View {
         .contentShape(NotchSurfaceShape(style: preferences.appearanceStyle))
         .onTapGesture {
             viewModel.openFromTap()
-        }
-        .animation(stateAnimation, value: viewModel.state)
-    }
-
-    private var stateAnimation: Animation {
-        switch viewModel.state {
-        case .open:
-            return .spring(response: 0.42, dampingFraction: 0.82)
-        case .closed:
-            return .spring(response: 0.45, dampingFraction: 1.0)
         }
     }
 }

@@ -190,8 +190,54 @@ final class DisplayControlService {
         let success = ddc.write(clampedValue, for: control, displayID: display.id)
         if success {
             saveStoredValue(clampedValue, for: control, storageID: display.storageID)
+            if control == .volume {
+                setStoredVolumeMuted(clampedValue <= 0, storageID: display.storageID)
+                if clampedValue > 0 {
+                    saveStoredMutedRestoreVolume(clampedValue, storageID: display.storageID)
+                }
+            }
         }
         return success
+    }
+
+    func isVolumeMuted(for display: ControlledDisplay) -> Bool {
+        guard display.supportsVolume else { return false }
+        return storedVolumeMuted(storageID: display.storageID) || display.volume <= 0
+    }
+
+    func setVolumeMuted(_ isMuted: Bool, for display: ControlledDisplay) -> Bool {
+        guard !display.isBuiltIn, display.supportsVolume else { return false }
+
+        if isMuted {
+            if display.volume > 0 {
+                saveStoredMutedRestoreVolume(display.volume, storageID: display.storageID)
+            }
+
+            guard setValue(0, for: .volume, display: display) else { return false }
+            setStoredVolumeMuted(true, storageID: display.storageID)
+            return true
+        }
+
+        let restoredVolume = storedMutedRestoreVolume(storageID: display.storageID)
+            ?? storedValue(for: .volume, storageID: display.storageID)
+            ?? DisplayControlKind.volume.defaultValue
+        let audibleVolume = max(1, restoredVolume)
+
+        guard setValue(audibleVolume, for: .volume, display: display) else { return false }
+        setStoredVolumeMuted(false, storageID: display.storageID)
+        return true
+    }
+
+    func volumeAfterSettingMuted(_ isMuted: Bool, for display: ControlledDisplay) -> Double? {
+        guard !display.isBuiltIn, display.supportsVolume else { return nil }
+        guard !isMuted else { return 0 }
+
+        return max(
+            1,
+            storedMutedRestoreVolume(storageID: display.storageID)
+                ?? storedValue(for: .volume, storageID: display.storageID)
+                ?? DisplayControlKind.volume.defaultValue
+        )
     }
 
     static func clamp(_ value: Double) -> Double {
@@ -232,6 +278,35 @@ final class DisplayControlService {
 
     private func storedValueKey(for control: DisplayControlKind, storageID: String) -> String {
         "displayControl.value.\(storageID).\(control.storageKey)"
+    }
+
+    private func storedVolumeMuted(storageID: String) -> Bool {
+        defaults.bool(forKey: storedVolumeMutedKey(storageID: storageID))
+    }
+
+    private func setStoredVolumeMuted(_ isMuted: Bool, storageID: String) {
+        defaults.set(isMuted, forKey: storedVolumeMutedKey(storageID: storageID))
+    }
+
+    private func storedVolumeMutedKey(storageID: String) -> String {
+        "displayControl.volumeMuted.\(storageID)"
+    }
+
+    private func storedMutedRestoreVolume(storageID: String) -> Double? {
+        let key = storedMutedRestoreVolumeKey(storageID: storageID)
+        guard defaults.object(forKey: key) != nil else { return nil }
+        let value = Self.clamp(defaults.double(forKey: key))
+        return value > 0 ? value : nil
+    }
+
+    private func saveStoredMutedRestoreVolume(_ value: Double, storageID: String) {
+        let clamped = Self.clamp(value)
+        guard clamped > 0 else { return }
+        defaults.set(clamped, forKey: storedMutedRestoreVolumeKey(storageID: storageID))
+    }
+
+    private func storedMutedRestoreVolumeKey(storageID: String) -> String {
+        "displayControl.volumeMutedRestore.\(storageID)"
     }
 
     private func unavailableReason(
@@ -343,6 +418,12 @@ private final class DisplayDDCBridge {
     private typealias ReadI2C = @convention(c) (IOAVServiceRef, UInt32, UInt32, UnsafeMutableRawPointer, UInt32) -> IOReturn
     private typealias WriteI2C = @convention(c) (IOAVServiceRef, UInt32, UInt32, UnsafeMutableRawPointer, UInt32) -> IOReturn
 
+    private struct DisplayEDID {
+        let vendorID: UInt32
+        let productID: UInt32
+        let serialNumber: UInt32
+    }
+
     private let resolver: DynamicFrameworkResolver
     private let createWithService: CreateWithService?
     private let readI2C: ReadI2C?
@@ -380,13 +461,7 @@ private final class DisplayDDCBridge {
             return
         }
 
-        guard services.count == externalDisplayIDs.count else {
-            servicesByDisplayID = [:]
-            refreshStatus = .serviceCountMismatch(displayCount: externalDisplayIDs.count, serviceCount: services.count)
-            return
-        }
-
-        servicesByDisplayID = Dictionary(uniqueKeysWithValues: zip(externalDisplayIDs, services))
+        servicesByDisplayID = matchServices(services, to: externalDisplayIDs)
         refreshStatus = .ready
         #else
         servicesByDisplayID = [:]
@@ -405,6 +480,83 @@ private final class DisplayDDCBridge {
             return Double(min(values.current, values.max)) / Double(values.max) * 100
         }
         return nil
+    }
+
+    private func matchServices(
+        _ services: [IOAVServiceRef],
+        to displayIDs: [CGDirectDisplayID]
+    ) -> [CGDirectDisplayID: IOAVServiceRef] {
+        var matches: [CGDirectDisplayID: IOAVServiceRef] = [:]
+        var usedServiceIndexes = Set<Int>()
+
+        for (index, service) in services.enumerated() {
+            guard let edid = readEDID(service: service),
+                  let displayID = displayIDs.first(where: {
+                    matches[$0] == nil && displayMatchesEDID($0, edid: edid)
+                  }) else {
+                continue
+            }
+
+            matches[displayID] = service
+            usedServiceIndexes.insert(index)
+        }
+
+        let remainingDisplays = displayIDs.filter { matches[$0] == nil }
+        let remainingServices = services.enumerated()
+            .filter { !usedServiceIndexes.contains($0.offset) }
+            .map(\.element)
+
+        for (displayID, service) in zip(remainingDisplays, remainingServices) {
+            matches[displayID] = service
+        }
+
+        return matches
+    }
+
+    private func displayMatchesEDID(_ displayID: CGDirectDisplayID, edid: DisplayEDID) -> Bool {
+        let vendor = UInt32(CGDisplayVendorNumber(displayID))
+        let product = UInt32(CGDisplayModelNumber(displayID))
+        let serial = UInt32(CGDisplaySerialNumber(displayID))
+
+        guard vendor == edid.vendorID, product == edid.productID else {
+            return false
+        }
+
+        guard serial > 0, edid.serialNumber > 0 else {
+            return true
+        }
+
+        return serial == edid.serialNumber
+    }
+
+    private func readEDID(service: IOAVServiceRef) -> DisplayEDID? {
+        guard let readI2C else { return nil }
+
+        var edidData = [UInt8](repeating: 0, count: 128)
+        let readSuccess = edidData.withUnsafeMutableBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else { return false }
+            return readI2C(service, 0x50, 0, baseAddress, 128) == KERN_SUCCESS
+        }
+        guard readSuccess else { return nil }
+
+        let expectedHeader = [UInt8](arrayLiteral: 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00)
+        guard Array(edidData.prefix(8)) == expectedHeader,
+              edidData.reduce(UInt8(0), &+) == 0 else {
+            return nil
+        }
+
+        let vendorID = UInt32(edidData[8]) << 8 | UInt32(edidData[9])
+        let productID = UInt32(edidData[10]) | UInt32(edidData[11]) << 8
+        let serialNumber = UInt32(edidData[12])
+            | UInt32(edidData[13]) << 8
+            | UInt32(edidData[14]) << 16
+            | UInt32(edidData[15]) << 24
+
+        return DisplayEDID(
+            vendorID: vendorID,
+            productID: productID,
+            serialNumber: serialNumber
+        )
     }
 
     func unavailableReason(for control: DisplayControlKind, displayID: CGDirectDisplayID) -> String {
@@ -427,12 +579,6 @@ private final class DisplayDDCBridge {
         var ddcValue = UInt16((DisplayControlService.clamp(value) / 100 * Double(maxValue)).rounded())
         if control == .volume, value > 0 {
             ddcValue = max(1, ddcValue)
-        }
-
-        if control == .volume, value <= 0 {
-            _ = write(service: service, vcpCode: 0x8D, value: 1)
-        } else if control == .volume {
-            _ = write(service: service, vcpCode: 0x8D, value: 2)
         }
 
         return vcpCodes(for: control).contains { code in

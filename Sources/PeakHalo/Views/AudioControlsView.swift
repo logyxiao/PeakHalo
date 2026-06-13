@@ -5,6 +5,8 @@ struct AudioControlsView: View {
     let compact: Bool
     @ObservedObject private var store = AudioControlStore.shared
     @Environment(\.colorScheme) private var colorScheme
+    @State private var playbackPickerItemID: String?
+    @State private var expandedEqualizerItemID: String?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -90,6 +92,7 @@ struct AudioControlsView: View {
 
             AudioSlider(
                 value: device.volume,
+                volumeBackend: device.volumeBackend,
                 isEnabled: device.supportsVolume,
                 tint: controlProgressColor,
                 primaryColor: primaryColor,
@@ -190,47 +193,73 @@ struct AudioControlsView: View {
     private func appVolumeRow(_ item: AudioAppVolumeItem) -> some View {
         let controlsEnabled = store.canControlAppAudio && !item.isIgnored
 
-        return HStack(spacing: compact ? 8 : 10) {
-            appIcon(item.icon)
+        return VStack(spacing: compact ? 5 : 7) {
+            HStack(spacing: compact ? 8 : 10) {
+                appIcon(item.icon)
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(item.name)
-                    .font(compact ? .caption.weight(.semibold) : .callout.weight(.semibold))
-                    .foregroundStyle(item.isIgnored ? secondaryColor : primaryColor)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.name)
+                        .font(compact ? .caption.weight(.semibold) : .callout.weight(.semibold))
+                        .foregroundStyle(item.isIgnored ? secondaryColor : primaryColor)
+                        .lineLimit(1)
 
-                Text(appSubtitle(for: item))
-                    .font(.caption2)
-                    .foregroundStyle(secondaryColor)
-                    .lineLimit(1)
+                    Text(appSubtitle(for: item))
+                        .font(.caption2)
+                        .foregroundStyle(secondaryColor)
+                        .lineLimit(1)
+                }
+                .frame(width: compact ? 96 : 150, alignment: .leading)
+
+                playbackDeviceMenu(item)
+
+                iconButton(
+                    systemImage: item.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                    isActive: item.isMuted,
+                    isEnabled: controlsEnabled,
+                    activeColor: .red,
+                    help: item.isMuted ? "Unmute App" : "Mute App"
+                ) {
+                    store.setAppMuted(!item.isMuted, itemID: item.id)
+                }
+
+                AudioSlider(
+                    value: item.volume,
+                    volumeBackend: .software,
+                    isEnabled: controlsEnabled,
+                    tint: controlProgressColor,
+                    primaryColor: primaryColor,
+                    secondaryColor: secondaryColor,
+                    onChange: { store.setAppVolume($0, itemID: item.id) }
+                )
+                .layoutPriority(1)
+
+                boostMenu(item)
+                equalizerButton(item)
+                processingButton(item)
             }
-            .frame(width: compact ? 116 : 170, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: compact ? 45 : 50, maxHeight: compact ? 45 : 50)
 
-            iconButton(
-                systemImage: item.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                isActive: item.isMuted,
-                isEnabled: controlsEnabled,
-                activeColor: .red,
-                help: item.isMuted ? "Unmute App" : "Mute App"
-            ) {
-                store.setAppMuted(!item.isMuted, itemID: item.id)
+            if expandedEqualizerItemID == item.id {
+                AudioEqualizerPanelView(
+                    item: item,
+                    compact: compact,
+                    primaryColor: primaryColor,
+                    secondaryColor: secondaryColor,
+                    tint: controlProgressColor,
+                    controlsEnabled: controlsEnabled,
+                    onEnabledChange: { isEnabled in
+                        store.setAppEqualizerEnabled(isEnabled, itemID: item.id)
+                    },
+                    onBandChange: { index, gain in
+                        store.setAppEqualizerBand(index, gain: gain, itemID: item.id)
+                    },
+                    onPreset: { preset in
+                        store.applyAppEqualizerPreset(preset, itemID: item.id)
+                    }
+                )
             }
-
-            AudioSlider(
-                value: item.volume,
-                isEnabled: controlsEnabled,
-                tint: controlProgressColor,
-                primaryColor: primaryColor,
-                secondaryColor: secondaryColor,
-                onChange: { store.setAppVolume($0, itemID: item.id) }
-            )
-            .layoutPriority(1)
-
-            boostMenu(item)
-            playbackDeviceMenu(item)
-            processingButton(item)
         }
-        .frame(maxWidth: .infinity, minHeight: compact ? 45 : 50, maxHeight: compact ? 45 : 50)
+        .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .contextMenu {
             Button(item.isPinned ? "Unpin App" : "Pin App") {
@@ -268,32 +297,68 @@ struct AudioControlsView: View {
         .help("Boost")
     }
 
+    private func equalizerButton(_ item: AudioAppVolumeItem) -> some View {
+        let controlsEnabled = store.canControlAppAudio && !item.isIgnored
+        let isExpanded = expandedEqualizerItemID == item.id
+        let isActive = isExpanded || item.equalizer.isEnabled
+
+        return Button {
+            expandedEqualizerItemID = isExpanded ? nil : item.id
+        } label: {
+            Image(systemName: isExpanded ? "xmark" : "slider.vertical.3")
+                .font(.system(size: compact ? 12 : 14, weight: .semibold))
+                .frame(width: compact ? 22 : 24, height: compact ? 22 : 24)
+        }
+        .buttonStyle(.plain)
+        .disabled(!controlsEnabled)
+        .foregroundStyle(isActive ? .blue : primaryColor.opacity(controlsEnabled ? 0.62 : 0.24))
+        .fixedSize()
+        .help(isExpanded ? "Close Equalizer" : "Equalizer")
+    }
+
     private func playbackDeviceMenu(_ item: AudioAppVolumeItem) -> some View {
         let controlsEnabled = store.canControlAppAudio && !item.isIgnored
-
-        return Menu {
-            Button {
-                store.setAppOutputDevice(nil, itemID: item.id)
-            } label: {
-                Label("System Default", systemImage: item.outputDeviceUID == nil ? "checkmark" : "circle")
-            }
-
-            Divider()
-
-            ForEach(store.outputDevices) { device in
-                Button {
-                    store.setAppOutputDevice(device.uid, itemID: item.id)
-                } label: {
-                    Label(device.name, systemImage: item.outputDeviceUID == device.uid ? "checkmark" : "circle")
+        let isPresented = Binding(
+            get: { playbackPickerItemID == item.id },
+            set: { isPresented in
+                if !isPresented {
+                    playbackPickerItemID = nil
                 }
             }
+        )
+
+        return Button {
+            playbackPickerItemID = item.id
         } label: {
             Image(systemName: "globe")
                 .font(.system(size: compact ? 13 : 15, weight: .semibold))
-                .frame(width: compact ? 22 : 24, height: compact ? 22 : 24)
-                .foregroundStyle(item.outputDeviceUID == nil ? secondaryColor : .blue)
+                .frame(width: compact ? 24 : 26, height: compact ? 24 : 26)
+                .background {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(playbackPickerItemID == item.id || item.outputRouteIntent != .systemDefault
+                            ? Color.blue.opacity(0.16)
+                            : Color.clear)
+                }
+                .foregroundStyle(item.outputRouteIntent == .systemDefault ? secondaryColor : .blue)
         }
-        .menuStyle(.borderlessButton)
+        .buttonStyle(.plain)
+        .popover(isPresented: isPresented, arrowEdge: .bottom) {
+            PlaybackDevicePickerView(
+                item: item,
+                devices: store.outputDevices,
+                compact: compact,
+                deviceIconName: deviceIconName(for:),
+                onSelectRoute: { routeIntent in
+                    store.setAppOutputRoute(routeIntent, itemID: item.id)
+                    if !routeIntent.isMulti {
+                        playbackPickerItemID = nil
+                    }
+                },
+                onToggleMultiDevice: { uid in
+                    store.toggleAppMultiOutputDevice(uid, itemID: item.id)
+                }
+            )
+        }
         .fixedSize()
         .disabled(!controlsEnabled || store.outputDevices.isEmpty)
         .help("Playback Device")
@@ -421,28 +486,320 @@ struct AudioControlsView: View {
 
 private struct AudioSlider: View {
     let value: Double
+    let volumeBackend: AudioOutputVolumeBackend
     let isEnabled: Bool
     let tint: Color
     let primaryColor: Color
     let secondaryColor: Color
     let onChange: (Double) -> Void
 
+    private var sliderValue: Double {
+        AudioVolumeMapping.sliderPercent(forGainPercent: value, backend: volumeBackend)
+    }
+
     var body: some View {
         HStack(spacing: 9) {
             ControlValueSlider(
-                value: value,
+                value: sliderValue,
                 isEnabled: isEnabled,
                 tint: tint,
                 primaryColor: primaryColor,
                 secondaryColor: secondaryColor,
-                onChange: onChange
+                onChange: { sliderPercent in
+                    onChange(AudioVolumeMapping.gainPercent(forSliderPercent: sliderPercent, backend: volumeBackend))
+                }
             )
 
-            Text(isEnabled ? "\(Int(value.rounded()))%" : "--")
+            Text(isEnabled ? "\(Int(sliderValue.rounded()))%" : "--")
                 .font(.caption.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(isEnabled ? primaryColor.opacity(0.72) : secondaryColor)
                 .frame(width: 42, alignment: .trailing)
         }
+    }
+}
+
+private struct AudioEqualizerPanelView: View {
+    let item: AudioAppVolumeItem
+    let compact: Bool
+    let primaryColor: Color
+    let secondaryColor: Color
+    let tint: Color
+    let controlsEnabled: Bool
+    let onEnabledChange: (Bool) -> Void
+    let onBandChange: (Int, Double) -> Void
+    let onPreset: (AudioEqualizerPreset) -> Void
+
+    private let labels = ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
+
+    var body: some View {
+        VStack(spacing: compact ? 7 : 9) {
+            HStack(spacing: 10) {
+                Toggle("", isOn: Binding(
+                    get: { item.equalizer.isEnabled },
+                    set: onEnabledChange
+                ))
+                .toggleStyle(.switch)
+                .scaleEffect(0.72)
+                .labelsHidden()
+                .disabled(!controlsEnabled)
+
+                Text("EQ")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(primaryColor)
+
+                Spacer()
+
+                Menu {
+                    ForEach(AudioEqualizerPreset.allCases) { preset in
+                        Button {
+                            onPreset(preset)
+                        } label: {
+                            Label(preset.name, systemImage: preset.settings.bandGains == item.equalizer.bandGains ? "checkmark" : "waveform")
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "wand.and.stars")
+                        Text("Preset")
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(tint)
+                }
+                .menuStyle(.borderlessButton)
+                .disabled(!controlsEnabled)
+                .fixedSize()
+            }
+
+            HStack(alignment: .bottom, spacing: compact ? 4 : 7) {
+                ForEach(0..<AudioEqualizerSettings.bandCount, id: \.self) { index in
+                    VStack(spacing: 4) {
+                        Text(gainText(for: index))
+                            .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(secondaryColor)
+                            .frame(height: 10)
+
+                        Slider(
+                            value: Binding(
+                                get: { item.equalizer.bandGains[index] },
+                                set: { onBandChange(index, $0) }
+                            ),
+                            in: AudioEqualizerSettings.minGainDB...AudioEqualizerSettings.maxGainDB,
+                            step: 1
+                        )
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: compact ? 74 : 86, height: 18)
+                        .disabled(!controlsEnabled || !item.equalizer.isEnabled)
+                        .tint(tint)
+
+                        Text(labels[index])
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundStyle(secondaryColor)
+                            .frame(height: 10)
+                    }
+                    .frame(width: compact ? 26 : 31, height: compact ? 104 : 116)
+                }
+            }
+            .opacity(item.equalizer.isEnabled ? 1 : 0.42)
+        }
+        .padding(.horizontal, compact ? 8 : 10)
+        .padding(.vertical, compact ? 7 : 9)
+        .background(primaryColor.opacity(compact ? 0.08 : 0.055), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(primaryColor.opacity(compact ? 0.10 : 0.08), lineWidth: 0.5)
+        }
+    }
+
+    private func gainText(for index: Int) -> String {
+        let value = Int(item.equalizer.bandGains[index].rounded())
+        if value > 0 {
+            return "+\(value)"
+        }
+        return "\(value)"
+    }
+}
+
+private struct PlaybackDevicePickerView: View {
+    let item: AudioAppVolumeItem
+    let devices: [AudioOutputDevice]
+    let compact: Bool
+    let deviceIconName: (AudioOutputDevice) -> String
+    let onSelectRoute: (AudioAppOutputRouteIntent) -> Void
+    let onToggleMultiDevice: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            modeSegments
+
+            Divider()
+                .padding(.top, 7)
+
+            VStack(spacing: compact ? 2 : 4) {
+                if !item.outputRouteIntent.isMulti {
+                    pickerRow(
+                        title: "System Audio",
+                        subtitle: "Follows macOS default",
+                        systemImage: "globe",
+                        isSelected: item.outputRouteIntent == .systemDefault,
+                        action: { onSelectRoute(.systemDefault) }
+                    )
+                }
+
+                ForEach(devices) { device in
+                    pickerRow(
+                        title: device.name,
+                        subtitle: nil,
+                        systemImage: deviceIconName(device),
+                        isSelected: isSelected(device.uid),
+                        trailingSystemImage: device.isDefault ? "star.fill" : nil,
+                        action: {
+                            if item.outputRouteIntent.isMulti {
+                                onToggleMultiDevice(device.uid)
+                            } else {
+                                onSelectRoute(.single(device.uid))
+                            }
+                        }
+                    )
+                }
+            }
+            .padding(.top, 8)
+        }
+        .padding(10)
+        .frame(width: compact ? 300 : 340)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var modeSegments: some View {
+        HStack(spacing: 0) {
+            modeSegment(
+                title: "Single",
+                isSelected: !item.outputRouteIntent.isMulti,
+                action: {
+                    onSelectRoute(singleRouteAfterLeavingMulti())
+                }
+            )
+
+            modeSegment(
+                title: "Multi",
+                isSelected: item.outputRouteIntent.isMulti,
+                action: {
+                    onSelectRoute(multiRouteAfterEnteringMulti())
+                }
+            )
+        }
+        .padding(3)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func modeSegment(
+        title: LocalizedStringKey,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(isSelected ? .blue : .secondary.opacity(0.5))
+
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 36)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.blue.opacity(0.18))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func isSelected(_ uid: String) -> Bool {
+        switch item.outputRouteIntent {
+        case .systemDefault:
+            return false
+        case .single(let selectedUID):
+            return selectedUID == uid
+        case .multi(let selectedUIDs):
+            return selectedUIDs.contains(uid)
+        }
+    }
+
+    private func singleRouteAfterLeavingMulti() -> AudioAppOutputRouteIntent {
+        if let uid = item.outputRouteIntent.selectedDeviceUIDs.first {
+            return .single(uid)
+        }
+
+        return .systemDefault
+    }
+
+    private func multiRouteAfterEnteringMulti() -> AudioAppOutputRouteIntent {
+        let selectedUIDs = item.outputRouteIntent.selectedDeviceUIDs
+        if !selectedUIDs.isEmpty {
+            return .multi(selectedUIDs)
+        }
+
+        if let defaultUID = devices.first(where: { $0.isDefault })?.uid {
+            return .multi([defaultUID])
+        }
+
+        if let firstUID = devices.first?.uid {
+            return .multi([firstUID])
+        }
+
+        return .systemDefault
+    }
+
+    private func pickerRow(
+        title: String,
+        subtitle: String?,
+        systemImage: String,
+        isSelected: Bool,
+        trailingSystemImage: String? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "checkmark" : "")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.blue)
+                    .frame(width: 18)
+
+                Image(systemName: systemImage)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let trailingSystemImage {
+                    Image(systemName: trailingSystemImage)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary.opacity(0.62))
+                        .frame(width: 18)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: subtitle == nil ? 36 : 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

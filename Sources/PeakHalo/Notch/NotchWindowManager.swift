@@ -375,6 +375,9 @@ final class NotchWindowManager {
         targetState: NotchState? = nil
     ) {
         let state = targetState ?? context.viewModel.state
+        let displayLayout = NotchGeometry.displayLayout(for: context.screen)
+        context.viewModel.updateDisplayLayout(displayLayout)
+
         let size = NotchGeometry.windowSize(
             for: context.screen,
             state: state,
@@ -400,9 +403,9 @@ final class NotchWindowManager {
     ) -> (duration: TimeInterval, timingFunction: CAMediaTimingFunction) {
         switch state {
         case .open:
-            return (0.34, CAMediaTimingFunction(name: .easeOut))
+            return (0.30, CAMediaTimingFunction(name: .easeOut))
         case .closed:
-            return (0.28, CAMediaTimingFunction(name: .easeInEaseOut))
+            return (0.22, CAMediaTimingFunction(name: .easeInEaseOut))
         }
     }
 

@@ -17,6 +17,15 @@ struct AboutSettingsView: View {
 
             updateStatus
             updateActions
+
+            Divider()
+
+            settingsHeader(
+                title: "Open Source Audio",
+                subtitle: "Audio controls are adapted from FineTune under GPLv3-compatible terms."
+            )
+
+            licenseSummary
         }
         .task {
             await updateStore.checkForUpdatesIfNeeded()
@@ -51,8 +60,7 @@ struct AboutSettingsView: View {
 
     @ViewBuilder
     private var appLogo: some View {
-        if let url = Bundle.module.url(forResource: "AppLogo", withExtension: "png"),
-           let image = NSImage(contentsOf: url) {
+        if let image = Self.appLogoImage {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
@@ -68,6 +76,32 @@ struct AboutSettingsView: View {
                         .foregroundStyle(.teal)
                 }
         }
+    }
+
+    private static var appLogoImage: NSImage? {
+        if let url = Bundle.main.url(forResource: "AppLogo", withExtension: "png"),
+           let image = NSImage(contentsOf: url) {
+            return image
+        }
+
+        guard let resourceURL = Bundle.main.resourceURL,
+              let resourceURLs = try? FileManager.default.contentsOfDirectory(
+                at: resourceURL,
+                includingPropertiesForKeys: nil
+              ) else {
+            return nil
+        }
+
+        for bundleURL in resourceURLs where bundleURL.pathExtension == "bundle" {
+            guard let bundle = Bundle(url: bundleURL),
+                  let url = bundle.url(forResource: "AppLogo", withExtension: "png"),
+                  let image = NSImage(contentsOf: url) else {
+                continue
+            }
+            return image
+        }
+
+        return nil
     }
 
     private func versionBadge(title: LocalizedStringKey, value: String) -> some View {
@@ -135,6 +169,29 @@ struct AboutSettingsView: View {
         }
     }
 
+    private var licenseSummary: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("PeakHalo incorporates GPLv3-compatible audio-control architecture and implementation techniques derived from FineTune.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Button {
+                    openURL("https://github.com/ronitsingh10/FineTune")
+                } label: {
+                    Label("FineTune", systemImage: "arrow.up.right.square")
+                }
+
+                Button {
+                    openURL("https://www.gnu.org/licenses/gpl-3.0.html")
+                } label: {
+                    Label("GPLv3", systemImage: "doc.text")
+                }
+            }
+        }
+    }
+
     private func updateDescription(for info: AppUpdateInfo) -> String {
         let base = String.localizedStringWithFormat(
             String(localized: "Latest version: %@"),
@@ -144,5 +201,10 @@ struct AboutSettingsView: View {
         guard let publishedAt = info.publishedAt else { return base }
 
         return base + " · " + publishedAt.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private func openURL(_ string: String) {
+        guard let url = URL(string: string) else { return }
+        NSWorkspace.shared.open(url)
     }
 }

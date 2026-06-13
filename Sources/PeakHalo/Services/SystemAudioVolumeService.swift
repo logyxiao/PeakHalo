@@ -7,11 +7,12 @@ final class SystemAudioVolumeService {
     private enum DeviceVolumeBackend {
         case hardware
         case display(ControlledDisplay)
+        case software(String)
         case unavailable
 
         var supportsVolume: Bool {
             switch self {
-            case .hardware, .display:
+            case .hardware, .display, .software:
                 return true
             case .unavailable:
                 return false
@@ -20,30 +21,132 @@ final class SystemAudioVolumeService {
 
         var unavailableReason: String? {
             switch self {
-            case .hardware, .display:
+            case .hardware, .display, .software:
                 return nil
             case .unavailable:
                 return String(localized: "This output device does not expose CoreAudio or DDC/CI volume.")
             }
         }
 
-        var usesCoreAudioMute: Bool {
+        var kind: AudioOutputVolumeBackend {
             switch self {
-            case .hardware, .unavailable:
-                return true
+            case .hardware:
+                return .hardware
             case .display:
+                return .display
+            case .software:
+                return .software
+            case .unavailable:
+                return .unavailable
+            }
+        }
+
+        func supportsMute(deviceID: AudioObjectID, service: SystemAudioVolumeService) -> Bool {
+            switch self {
+            case .hardware:
+                return service.canSetMute(deviceID: deviceID)
+            case .display, .software:
+                return true
+            case .unavailable:
                 return false
             }
         }
     }
 
     private let displayControlService = DisplayControlService()
+    private let defaults: UserDefaults
+    private let monitorQueue = DispatchQueue(label: "peakhalo.audio-device-monitor")
+    private var cachedBackends: [AudioObjectID: DeviceVolumeBackend] = [:]
+    private var deviceListListener: AudioObjectPropertyListenerBlock?
+    private var defaultOutputListener: AudioObjectPropertyListenerBlock?
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func startDeviceMonitoring(onChange: @escaping @Sendable () -> Void) {
+        guard deviceListListener == nil, defaultOutputListener == nil else { return }
+
+        var devicesAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var defaultOutputAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        let deviceListListener: AudioObjectPropertyListenerBlock = { _, _ in
+            onChange()
+        }
+        let defaultOutputListener: AudioObjectPropertyListenerBlock = { _, _ in
+            onChange()
+        }
+
+        let systemObjectID = AudioObjectID(kAudioObjectSystemObject)
+        if AudioObjectAddPropertyListenerBlock(
+            systemObjectID,
+            &devicesAddress,
+            monitorQueue,
+            deviceListListener
+        ) == noErr {
+            self.deviceListListener = deviceListListener
+        }
+
+        if AudioObjectAddPropertyListenerBlock(
+            systemObjectID,
+            &defaultOutputAddress,
+            monitorQueue,
+            defaultOutputListener
+        ) == noErr {
+            self.defaultOutputListener = defaultOutputListener
+        }
+    }
+
+    func stopDeviceMonitoring() {
+        let systemObjectID = AudioObjectID(kAudioObjectSystemObject)
+
+        if let deviceListListener {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDevices,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            AudioObjectRemovePropertyListenerBlock(
+                systemObjectID,
+                &address,
+                monitorQueue,
+                deviceListListener
+            )
+            self.deviceListListener = nil
+        }
+
+        if let defaultOutputListener {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            AudioObjectRemovePropertyListenerBlock(
+                systemObjectID,
+                &address,
+                monitorQueue,
+                defaultOutputListener
+            )
+            self.defaultOutputListener = nil
+        }
+    }
 
     func outputDevices() -> [AudioOutputDevice] {
         let defaultID = defaultOutputDeviceID()
         let displays = displayControlService.displays()
 
-        return audioDevices().filter(hasOutputStreams).map { deviceID in
+        let outputDeviceIDs = audioDevices().filter(hasOutputStreams)
+        var nextBackends: [AudioObjectID: DeviceVolumeBackend] = [:]
+
+        let devices = outputDeviceIDs.map { deviceID in
             let uid = stringProperty(
                 objectID: deviceID,
                 selector: kAudioDevicePropertyDeviceUID
@@ -60,9 +163,10 @@ final class SystemAudioVolumeService {
                 transportType: transportType,
                 displays: displays
             )
+            nextBackends[deviceID] = backend
             let volume = deviceVolume(deviceID: deviceID, backend: backend)
             let supportsVolume = backend.supportsVolume
-            let supportsMute = backend.usesCoreAudioMute && canSetMute(deviceID: deviceID)
+            let supportsMute = backend.supportsMute(deviceID: deviceID, service: self)
 
             return AudioOutputDevice(
                 id: deviceID,
@@ -71,12 +175,15 @@ final class SystemAudioVolumeService {
                 transportName: transportName(for: transportType),
                 isDefault: deviceID == defaultID,
                 volume: volume ?? DisplayControlKind.volume.defaultValue,
-                isMuted: backend.usesCoreAudioMute ? isMuted(deviceID: deviceID) ?? false : false,
+                isMuted: deviceMuted(deviceID: deviceID, backend: backend),
+                volumeBackend: backend.kind,
                 supportsVolume: supportsVolume,
                 supportsMute: supportsMute,
                 unavailableReason: backend.unavailableReason
             )
         }
+        cachedBackends = nextBackends
+        return devices
     }
 
     func outputVolume() -> Double? {
@@ -99,25 +206,55 @@ final class SystemAudioVolumeService {
     }
 
     func setDeviceVolume(_ value: Double, deviceID: AudioObjectID) -> Bool {
-        let scalar = Float(min(100, max(0, value)) / 100)
-        let uid = stringProperty(objectID: deviceID, selector: kAudioDevicePropertyDeviceUID) ?? "\(deviceID)"
-        let name = stringProperty(objectID: deviceID, selector: kAudioObjectPropertyName) ?? String(localized: "Output Device")
-        let backend = volumeBackend(
-            deviceID: deviceID,
-            uid: uid,
-            name: name,
-            transportType: transportType(deviceID: deviceID),
-            displays: displayControlService.displays()
-        )
+        setDeviceVolumeAndReadState(value, deviceID: deviceID).success
+    }
+
+    func setDeviceVolumeAndReadState(
+        _ value: Double,
+        deviceID: AudioObjectID
+    ) -> (success: Bool, actualVolume: Double?, actualIsMuted: Bool?) {
+        let clampedValue = Self.clamp(value)
+        let scalar = Float(clampedValue / 100)
+        var backend = cachedBackend(for: deviceID)
+        let success: Bool
 
         switch backend {
         case .hardware:
-            return setHardwareVolume(deviceID: deviceID, value: scalar)
+            success = setHardwareVolume(deviceID: deviceID, value: scalar)
+            if success {
+                if clampedValue <= 0 {
+                    _ = setCoreAudioMuted(true, deviceID: deviceID)
+                } else {
+                    _ = setCoreAudioMuted(false, deviceID: deviceID)
+                }
+            }
         case .display(let display):
-            return displayControlService.setValue(value, for: .volume, display: display)
+            success = displayControlService.setValue(clampedValue, for: .volume, display: display)
+            if success {
+                var updatedDisplay = display
+                updatedDisplay.volume = clampedValue
+                backend = .display(updatedDisplay)
+                cachedBackends[deviceID] = backend
+            }
+        case .software(let uid):
+            setSoftwareVolume(clampedValue, uid: uid)
+            success = true
         case .unavailable:
-            return false
+            success = false
         }
+
+        guard success else {
+            let state = deviceState(deviceID: deviceID)
+            return (false, state.volume, state.isMuted)
+        }
+
+        return (
+            true,
+            clampedValue,
+            backend.supportsMute(deviceID: deviceID, service: self)
+                ? deviceMuted(deviceID: deviceID, backend: backend)
+                : nil
+        )
     }
 
     private func setHardwareVolume(deviceID: AudioObjectID, value: Float32) -> Bool {
@@ -135,6 +272,46 @@ final class SystemAudioVolumeService {
     }
 
     func setDeviceMuted(_ isMuted: Bool, deviceID: AudioObjectID) -> Bool {
+        setDeviceMutedAndReadState(isMuted, deviceID: deviceID).success
+    }
+
+    func setDeviceMutedAndReadState(
+        _ isMuted: Bool,
+        deviceID: AudioObjectID
+    ) -> (success: Bool, actualVolume: Double?, actualIsMuted: Bool?) {
+        var backend = cachedBackend(for: deviceID)
+        let success: Bool
+        var actualVolume: Double?
+
+        switch backend {
+        case .display(let display):
+            actualVolume = displayControlService.volumeAfterSettingMuted(isMuted, for: display)
+            success = displayControlService.setVolumeMuted(isMuted, for: display)
+            if success, let actualVolume {
+                var updatedDisplay = display
+                updatedDisplay.volume = actualVolume
+                backend = .display(updatedDisplay)
+                cachedBackends[deviceID] = backend
+            }
+        case .hardware:
+            success = setCoreAudioMuted(isMuted, deviceID: deviceID)
+            actualVolume = coreAudioVolume(deviceID: deviceID)
+        case .software(let uid):
+            actualVolume = setSoftwareMuted(isMuted, uid: uid)
+            success = true
+        case .unavailable:
+            success = false
+        }
+
+        guard success else {
+            let state = deviceState(deviceID: deviceID)
+            return (false, state.volume, state.isMuted)
+        }
+
+        return (true, actualVolume, isMuted)
+    }
+
+    private func setCoreAudioMuted(_ isMuted: Bool, deviceID: AudioObjectID) -> Bool {
         if setMuted(deviceID: deviceID, element: kAudioObjectPropertyElementMain, isMuted: isMuted) {
             return true
         }
@@ -195,6 +372,25 @@ final class SystemAudioVolumeService {
         return deviceID
     }
 
+    func deviceState(deviceID: AudioObjectID) -> (volume: Double?, isMuted: Bool?) {
+        let backend = cachedBackend(for: deviceID)
+        return (
+            deviceVolume(deviceID: deviceID, backend: backend),
+            backend.supportsMute(deviceID: deviceID, service: self)
+                ? deviceMuted(deviceID: deviceID, backend: backend)
+                : nil
+        )
+    }
+
+    func outputProcessingGain(for deviceID: AudioObjectID) -> Double {
+        switch cachedBackend(for: deviceID) {
+        case .software(let uid):
+            return softwareProcessingGain(uid: uid)
+        case .hardware, .display, .unavailable:
+            return 1
+        }
+    }
+
     private func audioDevices() -> [AudioObjectID] {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
@@ -246,8 +442,23 @@ final class SystemAudioVolumeService {
         switch backend {
         case .display(let display):
             return display.volume
+        case .software(let uid):
+            return softwareVolume(uid: uid)
         case .hardware, .unavailable:
             return coreAudioVolume(deviceID: deviceID)
+        }
+    }
+
+    private func deviceMuted(deviceID: AudioObjectID, backend: DeviceVolumeBackend) -> Bool {
+        switch backend {
+        case .display(let display):
+            return displayControlService.isVolumeMuted(for: display)
+        case .hardware:
+            return isMuted(deviceID: deviceID) ?? false
+        case .software(let uid):
+            return softwareMuted(uid: uid)
+        case .unavailable:
+            return false
         }
     }
 
@@ -499,7 +710,25 @@ final class SystemAudioVolumeService {
             return .display(ddcDisplay)
         }
 
-        return .unavailable
+        return .software(uid)
+    }
+
+    private func cachedBackend(for deviceID: AudioObjectID) -> DeviceVolumeBackend {
+        if let backend = cachedBackends[deviceID] {
+            return backend
+        }
+
+        let uid = stringProperty(objectID: deviceID, selector: kAudioDevicePropertyDeviceUID) ?? "\(deviceID)"
+        let name = stringProperty(objectID: deviceID, selector: kAudioObjectPropertyName) ?? String(localized: "Output Device")
+        let backend = volumeBackend(
+            deviceID: deviceID,
+            uid: uid,
+            name: name,
+            transportType: transportType(deviceID: deviceID),
+            displays: displayControlService.displays()
+        )
+        cachedBackends[deviceID] = backend
+        return backend
     }
 
     private func matchingDDCDisplay(
@@ -637,6 +866,87 @@ final class SystemAudioVolumeService {
         default:
             return String(localized: "Output")
         }
+    }
+
+    private static func clamp(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        return min(100, max(0, value))
+    }
+
+    private func softwareVolume(uid: String) -> Double {
+        if let value = defaults.object(forKey: softwareVolumeKey(uid)) as? Double {
+            return Self.clamp(value)
+        }
+
+        if let value = defaults.object(forKey: softwareVolumeKey(uid)) as? NSNumber {
+            return Self.clamp(value.doubleValue)
+        }
+
+        return softwareMutedFlag(uid: uid) ? 0 : 100
+    }
+
+    private func softwareMuted(uid: String) -> Bool {
+        softwareMutedFlag(uid: uid) || softwareVolume(uid: uid) <= 0
+    }
+
+    private func softwareMutedFlag(uid: String) -> Bool {
+        defaults.bool(forKey: softwareMuteKey(uid))
+    }
+
+    private func softwareProcessingGain(uid: String) -> Double {
+        guard !softwareMuted(uid: uid) else { return 0 }
+        return min(1, max(0, softwareVolume(uid: uid) / 100))
+    }
+
+    private func setSoftwareVolume(_ value: Double, uid: String) {
+        let clampedValue = Self.clamp(value)
+        defaults.set(clampedValue, forKey: softwareVolumeKey(uid))
+
+        if clampedValue > 0 {
+            defaults.set(clampedValue, forKey: softwareRestoreVolumeKey(uid))
+            defaults.set(false, forKey: softwareMuteKey(uid))
+        } else {
+            defaults.set(true, forKey: softwareMuteKey(uid))
+        }
+    }
+
+    @discardableResult
+    private func setSoftwareMuted(_ isMuted: Bool, uid: String) -> Double {
+        if isMuted {
+            let currentVolume = softwareVolume(uid: uid)
+            if currentVolume > 0 {
+                defaults.set(currentVolume, forKey: softwareRestoreVolumeKey(uid))
+            }
+            defaults.set(0.0, forKey: softwareVolumeKey(uid))
+            defaults.set(true, forKey: softwareMuteKey(uid))
+            return 0
+        }
+
+        defaults.set(false, forKey: softwareMuteKey(uid))
+
+        let currentVolume = softwareVolume(uid: uid)
+        guard currentVolume <= 0 else { return currentVolume }
+
+        let restoredVolume = Self.clamp(
+            (defaults.object(forKey: softwareRestoreVolumeKey(uid)) as? Double)
+                ?? (defaults.object(forKey: softwareRestoreVolumeKey(uid)) as? NSNumber)?.doubleValue
+                ?? 50
+        )
+        let visibleVolume = restoredVolume > 0 ? restoredVolume : 50
+        defaults.set(visibleVolume, forKey: softwareVolumeKey(uid))
+        return visibleVolume
+    }
+
+    private func softwareVolumeKey(_ uid: String) -> String {
+        "audio.softwareDevice.volume.\(uid)"
+    }
+
+    private func softwareMuteKey(_ uid: String) -> String {
+        "audio.softwareDevice.muted.\(uid)"
+    }
+
+    private func softwareRestoreVolumeKey(_ uid: String) -> String {
+        "audio.softwareDevice.restoreVolume.\(uid)"
     }
 
     private func isSettable(

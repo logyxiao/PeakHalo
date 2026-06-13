@@ -18,9 +18,14 @@ final class AudioControlStore: ObservableObject {
     private let processService = AudioProcessService()
     private let processTapService = AudioProcessTapService()
     private let worker = AudioControlWorker()
+    private let recordingPermission = AudioRecordingPermissionController.shared
     private let defaults: UserDefaults
     private var hasLoaded = false
     private var monitorTask: Task<Void, Never>?
+    private var isProcessMonitoringActive = false
+    private var pendingProcessingAppIDs = Set<String>()
+    private var manuallyDisabledProcessingAppIDs = Set<String>()
+    private var fallbackRoutedAppIDs = Set<String>()
 
     var defaultOutputDevice: AudioOutputDevice? {
         outputDevices.first { $0.isDefault }
@@ -32,7 +37,7 @@ final class AudioControlStore: ObservableObject {
 
     private init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        captureSupport = Self.currentCaptureSupport()
+        refreshCaptureSupport()
     }
 
     func refreshIfNeeded() {
@@ -42,8 +47,10 @@ final class AudioControlStore: ObservableObject {
 
     func startMonitoring() {
         refreshCaptureSupport()
+        requestAudioCapturePermissionIfNeeded()
         refreshIfNeeded()
-        processService.startMonitoring { [weak self] in
+        startProcessMonitoringIfPermitted()
+        service.startDeviceMonitoring { [weak self] in
             Task { @MainActor in
                 self?.refresh()
             }
@@ -62,7 +69,9 @@ final class AudioControlStore: ObservableObject {
     }
 
     func stopMonitoring() {
+        service.stopDeviceMonitoring()
         processService.stopMonitoring()
+        isProcessMonitoringActive = false
         monitorTask?.cancel()
         monitorTask = nil
     }
@@ -78,14 +87,32 @@ final class AudioControlStore: ObservableObject {
 
         refreshCaptureSupport()
         isRefreshing = true
-        worker.refresh(service: service, processService: processService) { [weak self] result in
+        worker.refresh(
+            service: service,
+            processService: processService,
+            includeAudioProcesses: captureSupport.allowsAppAudioControl
+        ) { [weak self] result in
             Task { @MainActor in
                 guard let self else { return }
+                let previousDefaultUID = self.defaultOutputDevice?.uid
                 self.hasLoaded = true
                 self.outputDevices = result.devices
                 self.refreshAppItems(audioProcesses: result.audioProcesses)
                 self.isRefreshing = false
                 self.lastMessage = result.devices.isEmpty ? String(localized: "No output devices found.") : nil
+                if self.defaultOutputDevice?.uid != previousDefaultUID {
+                    self.routeDefaultFollowingApps()
+                }
+            }
+        }
+    }
+
+    private func startProcessMonitoringIfPermitted() {
+        guard captureSupport.allowsAppAudioControl, !isProcessMonitoringActive else { return }
+        isProcessMonitoringActive = true
+        processService.startMonitoring { [weak self] in
+            Task { @MainActor in
+                self?.refresh()
             }
         }
     }
@@ -99,6 +126,7 @@ final class AudioControlStore: ObservableObject {
         for index in outputDevices.indices {
             outputDevices[index].isDefault = outputDevices[index].id == deviceID
         }
+        routeDefaultFollowingApps()
         refresh()
     }
 
@@ -110,6 +138,10 @@ final class AudioControlStore: ObservableObject {
 
         let clamped = Self.clamp(value)
         outputDevices[index].volume = clamped
+        if outputDevices[index].supportsMute {
+            outputDevices[index].isMuted = clamped <= 0
+        }
+        updateProcessingDeviceGainIfNeeded(for: outputDevices[index])
 
         worker.setDeviceVolume(
             clamped,
@@ -129,11 +161,19 @@ final class AudioControlStore: ObservableObject {
         }
 
         outputDevices[index].isMuted = isMuted
-        if !service.setDeviceMuted(isMuted, deviceID: deviceID) {
-            outputDevices[index].isMuted.toggle()
-            lastMessage = String(localized: "Output device mute is unavailable.")
-        } else {
-            lastMessage = nil
+        if isMuted {
+            outputDevices[index].volume = 0
+        }
+        updateProcessingDeviceGainIfNeeded(for: outputDevices[index])
+
+        worker.setDeviceMuted(
+            isMuted,
+            deviceID: deviceID,
+            service: service
+        ) { [weak self] result in
+            Task { @MainActor in
+                self?.applyDeviceMuteWrite(result)
+            }
         }
     }
 
@@ -173,26 +213,87 @@ final class AudioControlStore: ObservableObject {
         updateProcessingState(itemID: itemID)
     }
 
-    func setAppOutputDevice(_ outputDeviceUID: String?, itemID: String) {
+    func setAppEqualizerEnabled(_ isEnabled: Bool, itemID: String) {
         guard canControlAppAudio else {
             showAppAudioPermissionMessage()
             return
         }
 
         updateAppItem(itemID) { item in
-            item.outputDeviceUID = outputDeviceUID
+            item.equalizer.isEnabled = isEnabled
+        }
+        updateProcessingState(itemID: itemID)
+    }
+
+    func setAppEqualizerBand(_ index: Int, gain: Double, itemID: String) {
+        guard canControlAppAudio else {
+            showAppAudioPermissionMessage()
+            return
         }
 
-        guard processingAppIDs.contains(itemID) else { return }
-        restartProcessing(itemID: itemID)
+        guard index >= 0, index < AudioEqualizerSettings.bandCount else { return }
+        updateAppItem(itemID) { item in
+            item.equalizer.bandGains[index] = AudioEqualizerSettings.clampGain(gain)
+            item.equalizer.isEnabled = true
+        }
+        updateProcessingState(itemID: itemID)
+    }
+
+    func applyAppEqualizerPreset(_ preset: AudioEqualizerPreset, itemID: String) {
+        guard canControlAppAudio else {
+            showAppAudioPermissionMessage()
+            return
+        }
+
+        updateAppItem(itemID) { item in
+            item.equalizer = preset.settings
+        }
+        updateProcessingState(itemID: itemID)
+    }
+
+    func setAppOutputDevice(_ outputDeviceUID: String?, itemID: String) {
+        setAppOutputRoute(outputDeviceUID.map { .single($0) } ?? .systemDefault, itemID: itemID)
+    }
+
+    func setAppOutputRoute(_ routeIntent: AudioAppOutputRouteIntent, itemID: String) {
+        guard canControlAppAudio else {
+            showAppAudioPermissionMessage()
+            return
+        }
+
+        updateAppItem(itemID) { item in
+            item.outputRouteIntent = routeIntent
+            item.outputDeviceUID = routeIntent.primaryOutputDeviceUID
+        }
+
+        manuallyDisabledProcessingAppIDs.remove(itemID)
+        activateOrSwitchProcessing(itemID: itemID)
+    }
+
+    func toggleAppMultiOutputDevice(_ uid: String, itemID: String) {
+        guard let item = appItems.first(where: { $0.id == itemID }) else { return }
+        let baseIntent: AudioAppOutputRouteIntent = item.outputRouteIntent.isMulti
+            ? item.outputRouteIntent
+            : .multi(item.outputRouteIntent.selectedDeviceUIDs)
+        setAppOutputRoute(baseIntent.togglingMultiDevice(uid), itemID: itemID)
     }
 
     func playbackDeviceTitle(for item: AudioAppVolumeItem) -> String {
-        guard let uid = item.outputDeviceUID else {
+        switch item.outputRouteIntent {
+        case .systemDefault:
             return String(localized: "System Default")
+        case .single(let uid):
+            return outputDevices.first { $0.uid == uid }?.name ?? String(localized: "Unknown Output")
+        case .multi(let uids):
+            let names = uids.compactMap { uid in
+                outputDevices.first { $0.uid == uid }?.name
+            }
+            guard !names.isEmpty else { return String(localized: "Unknown Outputs") }
+            if names.count == 1 {
+                return names[0]
+            }
+            return String.localizedStringWithFormat(String(localized: "%d Outputs"), names.count)
         }
-
-        return outputDevices.first { $0.uid == uid }?.name ?? String(localized: "Unknown Output")
     }
 
     func isProcessingEnabled(itemID: String) -> Bool {
@@ -206,23 +307,14 @@ final class AudioControlStore: ObservableObject {
         }
 
         if processingAppIDs.contains(itemID) {
+            manuallyDisabledProcessingAppIDs.insert(itemID)
+            pendingProcessingAppIDs.remove(itemID)
             deactivateProcessing(itemID: itemID)
             return
         }
 
-        guard let item = appItems.first(where: { $0.id == itemID }) else { return }
-        processTapService.activate(
-            itemID: itemID,
-            processObjectIDs: item.audioProcessObjectIDs,
-            outputDeviceUID: resolvedOutputDeviceUID(for: item),
-            volume: item.volume,
-            isMuted: item.isMuted,
-            boost: item.boost
-        ) { [weak self] result in
-            Task { @MainActor in
-                self?.applyTapResult(result, enabling: true)
-            }
-        }
+        manuallyDisabledProcessingAppIDs.remove(itemID)
+        activateOrSwitchProcessing(itemID: itemID)
     }
 
     func togglePinned(itemID: String) {
@@ -240,13 +332,19 @@ final class AudioControlStore: ObservableObject {
     }
 
     func refreshCaptureSupport() {
-        let nextState = Self.currentCaptureSupport()
+        let nextStatus = recordingPermission.refreshStatus()
+        let nextState = Self.captureSupport(for: nextStatus)
         captureSupport = nextState
 
         if !nextState.allowsAppAudioControl, !processingAppIDs.isEmpty {
             processTapService.deactivateAll()
             processingAppIDs.removeAll()
             appItems = sortedAppItems(appItems)
+        }
+
+        if !nextState.allowsAppAudioControl, isProcessMonitoringActive {
+            processService.stopMonitoring()
+            isProcessMonitoringActive = false
         }
     }
 
@@ -257,8 +355,10 @@ final class AudioControlStore: ObservableObject {
     ) {
         guard let index = appItems.firstIndex(where: { $0.id == itemID }) else { return }
 
-        update(&appItems[index])
-        saveSettings(for: appItems[index])
+        var item = appItems[index]
+        update(&item)
+        appItems[index] = item
+        saveSettings(for: item)
         if showSavedMessage {
             lastMessage = nil
         }
@@ -312,8 +412,15 @@ final class AudioControlStore: ObservableObject {
             )
         }
 
+        var existingIDs = Set(items.map(\.id))
+        for app in runningApps {
+            let id = storageID(for: app)
+            guard !existingIDs.contains(id) else { continue }
+            items.append(audioItem(for: app))
+            existingIDs.insert(id)
+        }
+
         let pinnedIDs = pinnedAppIDs()
-        let existingIDs = Set(items.map(\.id))
         for pinnedID in pinnedIDs where !existingIDs.contains(pinnedID) {
             let settings = settings(for: pinnedID)
             items.append(AudioAppVolumeItem(
@@ -329,17 +436,17 @@ final class AudioControlStore: ObservableObject {
                 isMuted: settings.isMuted,
                 boost: boostLevel(for: settings.boost),
                 outputDeviceUID: settings.outputDeviceUID,
+                outputRouteIntent: settings.outputRouteIntent,
+                equalizer: settings.equalizer,
                 isPinned: settings.isPinned,
                 isIgnored: settings.isIgnored
             ))
-        }
-
-        if items.isEmpty {
-            items = runningApps.prefix(5).map(audioItem(for:))
+            existingIDs.insert(pinnedID)
         }
 
         appItems = sortedAppItems(items)
         synchronizeProcessing(previousItems: previousItems, currentItems: items)
+        activatePendingProcessingIfPossible(currentItems: items)
     }
 
     private func audioItem(for app: NSRunningApplication) -> AudioAppVolumeItem {
@@ -352,23 +459,27 @@ final class AudioControlStore: ObservableObject {
         processes: [AudioProcessInfo]
     ) -> AudioAppVolumeItem {
         let settings = settings(for: id)
+        let representativeProcess = processes.first
 
         return AudioAppVolumeItem(
             id: id,
             name: app?.localizedName
                 ?? app?.bundleIdentifier
-                ?? processes.first?.bundleIdentifier
+                ?? representativeProcess?.displayName
+                ?? representativeProcess?.bundleIdentifier
                 ?? String(localized: "Audio Process"),
-            bundleIdentifier: app?.bundleIdentifier ?? processes.first?.bundleIdentifier,
-            processID: app?.processIdentifier ?? processes.first?.processID,
+            bundleIdentifier: app?.bundleIdentifier ?? representativeProcess?.bundleIdentifier,
+            processID: app?.processIdentifier ?? representativeProcess?.processID,
             audioProcessObjectIDs: processes.map(\.objectID),
-            icon: app?.icon,
-            isRunning: app != nil,
+            icon: app?.icon ?? representativeProcess?.icon,
+            isRunning: app != nil || !processes.isEmpty,
             isAudible: processes.contains { $0.isRunningOutput },
             volume: settings.volume,
             isMuted: settings.isMuted,
             boost: boostLevel(for: settings.boost),
             outputDeviceUID: settings.outputDeviceUID,
+            outputRouteIntent: settings.outputRouteIntent,
+            equalizer: settings.equalizer,
             isPinned: settings.isPinned,
             isIgnored: settings.isIgnored
         )
@@ -397,6 +508,8 @@ final class AudioControlStore: ObservableObject {
             isMuted: item.isMuted,
             boost: item.boost.rawValue,
             outputDeviceUID: item.outputDeviceUID,
+            outputRouteIntent: item.outputRouteIntent,
+            equalizer: item.equalizer,
             isPinned: item.isPinned,
             isIgnored: item.isIgnored
         )
@@ -481,7 +594,9 @@ final class AudioControlStore: ObservableObject {
             itemID: itemID,
             volume: item.volume,
             isMuted: item.isMuted,
-            boost: item.boost
+            boost: item.boost,
+            deviceGain: deviceProcessingGain(for: item),
+            equalizer: item.equalizer
         )
     }
 
@@ -501,16 +616,83 @@ final class AudioControlStore: ObservableObject {
                 self.processTapService.activate(
                     itemID: itemID,
                     processObjectIDs: item.audioProcessObjectIDs,
-                    outputDeviceUID: self.resolvedOutputDeviceUID(for: item),
+                    route: self.resolvedRoute(for: item),
                     volume: item.volume,
                     isMuted: item.isMuted,
-                    boost: item.boost
+                    boost: item.boost,
+                    deviceGain: self.deviceProcessingGain(for: item),
+                    equalizer: item.equalizer
                 ) { [weak self] result in
                     Task { @MainActor in
                         self?.applyTapResult(result, enabling: true)
                     }
                 }
             }
+        }
+    }
+
+    private func activateOrSwitchProcessing(itemID: String) {
+        guard canControlAppAudio else { return }
+        guard let item = appItems.first(where: { $0.id == itemID }),
+              !item.isIgnored else {
+            return
+        }
+
+        guard !item.audioProcessObjectIDs.isEmpty else {
+            pendingProcessingAppIDs.insert(itemID)
+            lastMessage = String(localized: "No active audio process is available for this app.")
+            return
+        }
+
+        processTapService.switchOutputDevice(
+            itemID: itemID,
+            processObjectIDs: item.audioProcessObjectIDs,
+            route: resolvedRoute(for: item),
+            volume: item.volume,
+            isMuted: item.isMuted,
+            boost: item.boost,
+            deviceGain: deviceProcessingGain(for: item),
+            equalizer: item.equalizer
+        ) { [weak self] result in
+            Task { @MainActor in
+                self?.applyTapResult(result, enabling: true)
+            }
+        }
+    }
+
+    private func routeDefaultFollowingApps() {
+        guard canControlAppAudio, defaultOutputDevice?.uid != nil else { return }
+
+        for item in appItems
+            where item.outputRouteIntent == .systemDefault
+                && processingAppIDs.contains(item.id)
+                && !item.audioProcessObjectIDs.isEmpty {
+            processTapService.switchOutputDevice(
+                itemID: item.id,
+                processObjectIDs: item.audioProcessObjectIDs,
+                route: resolvedRoute(for: item),
+                volume: item.volume,
+                isMuted: item.isMuted,
+                boost: item.boost,
+                deviceGain: deviceProcessingGain(for: item),
+                equalizer: item.equalizer
+            ) { [weak self] result in
+                Task { @MainActor in
+                    self?.applyTapResult(result, enabling: true)
+                }
+            }
+        }
+    }
+
+    private func activatePendingProcessingIfPossible(currentItems: [AudioAppVolumeItem]) {
+        guard canControlAppAudio, !pendingProcessingAppIDs.isEmpty else { return }
+
+        for item in currentItems
+            where pendingProcessingAppIDs.contains(item.id)
+                && !manuallyDisabledProcessingAppIDs.contains(item.id)
+                && !item.isIgnored
+                && !item.audioProcessObjectIDs.isEmpty {
+            activateOrSwitchProcessing(itemID: item.id)
         }
     }
 
@@ -522,20 +704,130 @@ final class AudioControlStore: ObservableObject {
         }
     }
 
-    private func resolvedOutputDeviceUID(for item: AudioAppVolumeItem) -> String? {
-        if let outputDeviceUID = item.outputDeviceUID,
-           outputDevices.contains(where: { $0.uid == outputDeviceUID }) {
-            return outputDeviceUID
+    private func deviceProcessingGain(for item: AudioAppVolumeItem) -> Double {
+        switch item.outputRouteIntent {
+        case .systemDefault:
+            return defaultOutputDevice?.softwareProcessingGain ?? 1
+        case .single(let outputDeviceUID):
+            let device = outputDevices.first { $0.uid == outputDeviceUID } ?? defaultOutputDevice
+            return device?.softwareProcessingGain ?? 1
+        case .multi:
+            return 1
+        }
+    }
+
+    private func updateProcessingDeviceGainIfNeeded(for device: AudioOutputDevice) {
+        guard device.volumeBackend == .software,
+              canControlAppAudio,
+              !processingAppIDs.isEmpty else {
+            return
         }
 
-        return defaultOutputDevice?.uid
+        for item in appItems
+            where processingAppIDs.contains(item.id)
+                && itemUsesSoftwareDeviceGain(item, deviceUID: device.uid) {
+            processTapService.update(
+                itemID: item.id,
+                volume: item.volume,
+                isMuted: item.isMuted,
+                boost: item.boost,
+                deviceGain: deviceProcessingGain(for: item),
+                equalizer: item.equalizer
+            )
+        }
+    }
+
+    private func itemUsesSoftwareDeviceGain(_ item: AudioAppVolumeItem, deviceUID: String) -> Bool {
+        switch item.outputRouteIntent {
+        case .systemDefault:
+            return defaultOutputDevice?.uid == deviceUID
+        case .single(let outputDeviceUID):
+            if outputDevices.contains(where: { $0.uid == outputDeviceUID }) {
+                return outputDeviceUID == deviceUID
+            }
+            return defaultOutputDevice?.uid == deviceUID
+        case .multi:
+            return false
+        }
+    }
+
+    private func resolvedRoute(for item: AudioAppVolumeItem) -> AudioProcessTapRoute? {
+        switch item.outputRouteIntent {
+        case .single(let outputDeviceUID):
+            if let device = outputDevices.first(where: { $0.uid == outputDeviceUID }) {
+                fallbackRoutedAppIDs.remove(item.id)
+                return AudioProcessTapRoute(
+                    outputDeviceID: device.id,
+                    outputDeviceUID: device.uid,
+                    outputDevices: [device],
+                    followsSystemDefault: false,
+                    preferredTapSourceDeviceUID: nil
+                )
+            }
+
+            if let defaultOutputDevice {
+                fallbackRoutedAppIDs.insert(item.id)
+                return AudioProcessTapRoute(
+                    outputDeviceID: defaultOutputDevice.id,
+                    outputDeviceUID: defaultOutputDevice.uid,
+                    outputDevices: [defaultOutputDevice],
+                    followsSystemDefault: false,
+                    preferredTapSourceDeviceUID: nil
+                )
+            }
+
+            return nil
+        case .multi(let outputDeviceUIDs):
+            let selectedDevices = outputDeviceUIDs.compactMap { uid in
+                outputDevices.first { $0.uid == uid }
+            }
+            if let firstDevice = selectedDevices.first {
+                fallbackRoutedAppIDs.remove(item.id)
+                return AudioProcessTapRoute(
+                    outputDeviceID: firstDevice.id,
+                    outputDeviceUID: firstDevice.uid,
+                    outputDevices: selectedDevices,
+                    followsSystemDefault: false,
+                    preferredTapSourceDeviceUID: nil
+                )
+            }
+
+            if let defaultOutputDevice {
+                fallbackRoutedAppIDs.insert(item.id)
+                return AudioProcessTapRoute(
+                    outputDeviceID: defaultOutputDevice.id,
+                    outputDeviceUID: defaultOutputDevice.uid,
+                    outputDevices: [defaultOutputDevice],
+                    followsSystemDefault: false,
+                    preferredTapSourceDeviceUID: nil
+                )
+            }
+
+            return nil
+        case .systemDefault:
+            fallbackRoutedAppIDs.remove(item.id)
+            guard let defaultOutputDevice else { return nil }
+            return AudioProcessTapRoute(
+                outputDeviceID: defaultOutputDevice.id,
+                outputDeviceUID: defaultOutputDevice.uid,
+                outputDevices: [defaultOutputDevice],
+                followsSystemDefault: true,
+                preferredTapSourceDeviceUID: defaultOutputDevice.uid
+            )
+        }
     }
 
     private func applyTapResult(_ result: AudioProcessTapResult, enabling: Bool) {
         if result.success {
             if enabling {
                 processingAppIDs.insert(result.itemID)
-                lastMessage = String(localized: "Per-app audio processing is active.")
+                pendingProcessingAppIDs.remove(result.itemID)
+                manuallyDisabledProcessingAppIDs.remove(result.itemID)
+                if fallbackRoutedAppIDs.remove(result.itemID) != nil {
+                    lastMessage = String(localized: "Selected output is unavailable. Using System Default.")
+                } else {
+                    lastMessage = String(localized: "Per-app audio processing is active.")
+                }
             } else {
                 processingAppIDs.remove(result.itemID)
                 lastMessage = nil
@@ -555,7 +847,11 @@ final class AudioControlStore: ObservableObject {
         guard let index = outputDevices.firstIndex(where: { $0.id == result.deviceID }) else { return }
 
         if result.success {
-            outputDevices[index].volume = result.value
+            outputDevices[index].volume = result.actualValue ?? result.value
+            if outputDevices[index].supportsMute {
+                outputDevices[index].isMuted = result.actualIsMuted ?? (outputDevices[index].volume <= 0)
+            }
+            updateProcessingDeviceGainIfNeeded(for: outputDevices[index])
             lastMessage = nil
             return
         }
@@ -563,7 +859,29 @@ final class AudioControlStore: ObservableObject {
         if let actualValue = result.actualValue {
             outputDevices[index].volume = actualValue
         }
+        updateProcessingDeviceGainIfNeeded(for: outputDevices[index])
         lastMessage = String(localized: "Output device volume is unavailable.")
+    }
+
+    private func applyDeviceMuteWrite(_ result: AudioControlWorker.DeviceMuteWriteResult) {
+        guard let index = outputDevices.firstIndex(where: { $0.id == result.deviceID }) else { return }
+
+        if result.success {
+            if let actualValue = result.actualValue {
+                outputDevices[index].volume = actualValue
+            }
+            outputDevices[index].isMuted = result.actualIsMuted ?? result.isMuted
+            updateProcessingDeviceGainIfNeeded(for: outputDevices[index])
+            lastMessage = nil
+            return
+        }
+
+        if let actualValue = result.actualValue {
+            outputDevices[index].volume = actualValue
+        }
+        outputDevices[index].isMuted = result.actualIsMuted ?? !result.isMuted
+        updateProcessingDeviceGainIfNeeded(for: outputDevices[index])
+        lastMessage = String(localized: "Output device mute is unavailable.")
     }
 
     private func synchronizeProcessing(
@@ -605,21 +923,38 @@ final class AudioControlStore: ObservableObject {
         return min(100, max(0, value))
     }
 
-    private static func currentCaptureSupport() -> AudioCaptureSupportState {
-        if #available(macOS 14.4, *) {
-            switch AudioCapturePermissionProbe.preflight() {
-            case .authorized, .unknown:
-                return .available
-            case .denied:
-                return .permissionRequired(String(localized: "Grant Screen & System Audio Recording permission to adjust per-app volume."))
-            }
+    private static func captureSupport(for status: AudioRecordingPermissionStatus) -> AudioCaptureSupportState {
+        switch status {
+        case .authorized:
+            return .available
+        case .unknown:
+            return .permissionRequired(String(localized: "Allow Screen & System Audio Recording to adjust per-app volume."))
+        case .denied:
+            return .permissionRequired(String(localized: "Grant Screen & System Audio Recording permission to adjust per-app volume."))
+        case .unsupported:
+            break
         }
 
         return .unsupported(String(localized: "Per-app volume requires macOS 14.4 or later."))
     }
 
     private func showAppAudioPermissionMessage() {
+        requestAudioCapturePermissionIfNeeded()
         lastMessage = captureSupport.message ?? String(localized: "Grant Screen & System Audio Recording permission to adjust per-app volume.")
+    }
+
+    private func requestAudioCapturePermissionIfNeeded() {
+        recordingPermission.requestIfNeeded { [weak self] status in
+            guard let self else { return }
+            self.captureSupport = Self.captureSupport(for: status)
+            if self.captureSupport.allowsAppAudioControl {
+                self.startProcessMonitoringIfPermitted()
+                self.lastMessage = nil
+                self.refresh()
+            } else {
+                self.lastMessage = self.captureSupport.message
+            }
+        }
     }
 
     private func applyPermissionFailureIfNeeded(_ result: AudioProcessTapResult) -> Bool {
@@ -628,48 +963,10 @@ final class AudioControlStore: ObservableObject {
         }
 
         let message = String(localized: "Grant Screen & System Audio Recording permission to adjust per-app volume.")
+        recordingPermission.markDenied()
         captureSupport = .permissionRequired(message)
         lastMessage = message
         return true
-    }
-}
-
-private enum AudioCapturePermissionStatus {
-    case unknown
-    case authorized
-    case denied
-}
-
-private enum AudioCapturePermissionProbe {
-    private static let tccServiceAudioCapture = "kTCCServiceAudioCapture" as CFString
-    private typealias PreflightFunction = @convention(c) (CFString, CFDictionary?) -> Int
-
-    private static let tccHandle: UnsafeMutableRawPointer? = {
-        dlopen("/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC", RTLD_NOW)
-    }()
-
-    private static let preflightFunction: PreflightFunction? = {
-        guard let tccHandle,
-              let symbol = dlsym(tccHandle, "TCCAccessPreflight") else {
-            return nil
-        }
-
-        return unsafeBitCast(symbol, to: PreflightFunction.self)
-    }()
-
-    static func preflight() -> AudioCapturePermissionStatus {
-        guard let preflightFunction else {
-            return .unknown
-        }
-
-        switch preflightFunction(tccServiceAudioCapture, nil) {
-        case 0:
-            return .authorized
-        case 1:
-            return .denied
-        default:
-            return .unknown
-        }
     }
 }
 
@@ -689,17 +986,27 @@ private final class AudioControlWorker {
         let value: Double
         let success: Bool
         let actualValue: Double?
+        let actualIsMuted: Bool?
+    }
+
+    struct DeviceMuteWriteResult {
+        let deviceID: AudioObjectID
+        let isMuted: Bool
+        let success: Bool
+        let actualValue: Double?
+        let actualIsMuted: Bool?
     }
 
     func refresh(
         service: SystemAudioVolumeService,
         processService: AudioProcessService,
+        includeAudioProcesses: Bool,
         completion: @escaping (RefreshResult) -> Void
     ) {
         queue.async {
             completion(RefreshResult(
                 devices: service.outputDevices(),
-                audioProcesses: processService.audibleProcesses()
+                audioProcesses: includeAudioProcesses ? processService.audibleProcesses() : []
             ))
         }
     }
@@ -711,6 +1018,11 @@ private final class AudioControlWorker {
         completion: @escaping (DeviceVolumeWriteResult) -> Void
     ) {
         queue.async {
+            if let pendingValue = self.pendingDeviceVolumeWrites[deviceID],
+               abs(pendingValue - value) < 0.05 {
+                return
+            }
+
             self.pendingDeviceVolumeWrites[deviceID] = value
             self.deviceVolumeTimers[deviceID]?.cancel()
 
@@ -721,17 +1033,39 @@ private final class AudioControlWorker {
                 }
                 self.deviceVolumeTimers.removeValue(forKey: deviceID)
 
-                let success = service.setDeviceVolume(latestValue, deviceID: deviceID)
-                let actualValue = success ? latestValue : service.outputDevices().first { $0.id == deviceID }?.volume
+                let write = service.setDeviceVolumeAndReadState(latestValue, deviceID: deviceID)
                 completion(DeviceVolumeWriteResult(
                     deviceID: deviceID,
                     value: latestValue,
-                    success: success,
-                    actualValue: actualValue
+                    success: write.success,
+                    actualValue: write.actualVolume ?? (write.success ? latestValue : nil),
+                    actualIsMuted: write.actualIsMuted
                 ))
             }
             self.deviceVolumeTimers[deviceID] = timer
             self.queue.asyncAfter(deadline: .now() + self.deviceVolumeDebounce, execute: timer)
+        }
+    }
+
+    func setDeviceMuted(
+        _ isMuted: Bool,
+        deviceID: AudioObjectID,
+        service: SystemAudioVolumeService,
+        completion: @escaping (DeviceMuteWriteResult) -> Void
+    ) {
+        queue.async {
+            self.deviceVolumeTimers[deviceID]?.cancel()
+            self.deviceVolumeTimers.removeValue(forKey: deviceID)
+            self.pendingDeviceVolumeWrites.removeValue(forKey: deviceID)
+
+            let write = service.setDeviceMutedAndReadState(isMuted, deviceID: deviceID)
+            completion(DeviceMuteWriteResult(
+                deviceID: deviceID,
+                isMuted: isMuted,
+                success: write.success,
+                actualValue: write.actualVolume,
+                actualIsMuted: write.actualIsMuted
+            ))
         }
     }
 }
