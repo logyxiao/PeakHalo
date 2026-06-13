@@ -141,8 +141,9 @@ final class SystemMetricsService: NSObject, ObservableObject {
         isSamplingMetrics = true
         let generation = metricsGeneration
         metricsWorker.sample(forceAll: forceAll) { [weak self] stats in
+            guard let service = self else { return }
             Task { @MainActor in
-                self?.applyMetricsSample(stats, generation: generation)
+                service.applyMetricsSample(stats, generation: generation)
             }
         }
     }
