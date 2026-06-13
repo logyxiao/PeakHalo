@@ -3,9 +3,13 @@ set -euo pipefail
 
 MODE="${1:-run}"
 APP_NAME="PeakHalo"
-BUNDLE_ID="com.logyxiao.PeakHalo"
 MIN_SYSTEM_VERSION="15.0"
 BUILD_CONFIGURATION="${SWIFT_BUILD_CONFIGURATION:-debug}"
+DEFAULT_BUNDLE_ID="com.logyxiao.PeakHalo"
+if [[ "$BUILD_CONFIGURATION" == "debug" ]]; then
+  DEFAULT_BUNDLE_ID="com.logyxiao.PeakHalo.debug"
+fi
+BUNDLE_ID="${APP_BUNDLE_ID:-$DEFAULT_BUNDLE_ID}"
 APP_VERSION="${APP_VERSION:-0.1.0}"
 APP_BUILD="${APP_BUILD:-dev}"
 

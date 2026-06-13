@@ -9,7 +9,7 @@ final class MenuBarStatusItemController: NSObject {
     private let languageStore = AppLanguageStore.shared
     private var statusItem: NSStatusItem?
     private var cancellables = Set<AnyCancellable>()
-    private static let statusItemLength: CGFloat = 28
+    private static let statusItemLength: CGFloat = NSStatusItem.squareLength
     private static let statusIconSize = NSSize(width: 18, height: 18)
 
     private override init() {
@@ -117,7 +117,15 @@ final class MenuBarStatusItemController: NSObject {
     }
 
     private static func makeStatusBarIcon() -> NSImage {
-        makeLogoStatusBarIcon()
+        if let symbolImage = NSImage(
+            systemSymbolName: "waveform.path.ecg.circle.fill",
+            accessibilityDescription: AppLocalization.localizedString("PeakHalo", language: .system)
+        ) {
+            symbolImage.isTemplate = true
+            return symbolImage
+        }
+
+        return makeLogoStatusBarIcon()
     }
 
     private static func makeLogoStatusBarIcon() -> NSImage {

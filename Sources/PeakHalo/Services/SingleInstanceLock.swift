@@ -6,8 +6,11 @@ import Foundation
 final class SingleInstanceLock {
     static let shared = SingleInstanceLock()
 
-    private static let bundleIdentifier = "com.logyxiao.PeakHalo"
+    private static let fallbackBundleIdentifier = "com.logyxiao.PeakHalo"
     private static let executableName = "PeakHalo"
+    private static var bundleIdentifier: String {
+        Bundle.main.bundleIdentifier ?? fallbackBundleIdentifier
+    }
     private var lockFileDescriptor: Int32 = -1
 
     private init() {}
@@ -34,7 +37,7 @@ final class SingleInstanceLock {
         guard lockFileDescriptor == -1 else { return true }
 
         let lockPath = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("com.logyxiao.PeakHalo.lock")
+            .appendingPathComponent("\(Self.bundleIdentifier).lock")
             .path
         let descriptor = open(lockPath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else { return true }
@@ -71,12 +74,17 @@ final class SingleInstanceLock {
             }
         }
 
-        terminateProcessPathMatches(currentProcessID: currentProcessID, force: force)
+        if Bundle.main.bundleIdentifier == nil {
+            terminateProcessPathMatches(currentProcessID: currentProcessID, force: force)
+        }
     }
 
     private func isPeakHaloApplication(_ application: NSRunningApplication) -> Bool {
-        application.bundleIdentifier == Self.bundleIdentifier
-            || application.executableURL?.lastPathComponent == Self.executableName
+        if Bundle.main.bundleIdentifier != nil {
+            return application.bundleIdentifier == Self.bundleIdentifier
+        }
+
+        return application.executableURL?.lastPathComponent == Self.executableName
             || application.localizedName == Self.executableName
     }
 
