@@ -54,6 +54,7 @@ final class SystemAudioVolumeService {
     }
 
     private let displayControlService = DisplayControlService()
+    private let softwareVolumeStore: SoftwareDeviceVolumeStore
     private let defaults: UserDefaults
     private let monitorQueue = DispatchQueue(label: "peakhalo.audio-device-monitor")
     private var cachedBackends: [AudioObjectID: DeviceVolumeBackend] = [:]
@@ -62,6 +63,7 @@ final class SystemAudioVolumeService {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        self.softwareVolumeStore = SoftwareDeviceVolumeStore(defaults: defaults)
     }
 
     func startDeviceMonitoring(onChange: @escaping @Sendable () -> Void) {
@@ -874,79 +876,24 @@ final class SystemAudioVolumeService {
     }
 
     private func softwareVolume(uid: String) -> Double {
-        if let value = defaults.object(forKey: softwareVolumeKey(uid)) as? Double {
-            return Self.clamp(value)
-        }
-
-        if let value = defaults.object(forKey: softwareVolumeKey(uid)) as? NSNumber {
-            return Self.clamp(value.doubleValue)
-        }
-
-        return softwareMutedFlag(uid: uid) ? 0 : 100
+        softwareVolumeStore.volume(uid: uid)
     }
 
     private func softwareMuted(uid: String) -> Bool {
-        softwareMutedFlag(uid: uid) || softwareVolume(uid: uid) <= 0
-    }
-
-    private func softwareMutedFlag(uid: String) -> Bool {
-        defaults.bool(forKey: softwareMuteKey(uid))
+        softwareVolumeStore.isMuted(uid: uid)
     }
 
     private func softwareProcessingGain(uid: String) -> Double {
-        guard !softwareMuted(uid: uid) else { return 0 }
-        return min(1, max(0, softwareVolume(uid: uid) / 100))
+        softwareVolumeStore.processingGain(uid: uid)
     }
 
     private func setSoftwareVolume(_ value: Double, uid: String) {
-        let clampedValue = Self.clamp(value)
-        defaults.set(clampedValue, forKey: softwareVolumeKey(uid))
-
-        if clampedValue > 0 {
-            defaults.set(clampedValue, forKey: softwareRestoreVolumeKey(uid))
-            defaults.set(false, forKey: softwareMuteKey(uid))
-        } else {
-            defaults.set(true, forKey: softwareMuteKey(uid))
-        }
+        softwareVolumeStore.setVolume(value, uid: uid)
     }
 
     @discardableResult
     private func setSoftwareMuted(_ isMuted: Bool, uid: String) -> Double {
-        if isMuted {
-            let currentVolume = softwareVolume(uid: uid)
-            if currentVolume > 0 {
-                defaults.set(currentVolume, forKey: softwareRestoreVolumeKey(uid))
-            }
-            defaults.set(0.0, forKey: softwareVolumeKey(uid))
-            defaults.set(true, forKey: softwareMuteKey(uid))
-            return 0
-        }
-
-        defaults.set(false, forKey: softwareMuteKey(uid))
-
-        let currentVolume = softwareVolume(uid: uid)
-        guard currentVolume <= 0 else { return currentVolume }
-
-        let restoredVolume = Self.clamp(
-            (defaults.object(forKey: softwareRestoreVolumeKey(uid)) as? Double)
-                ?? (defaults.object(forKey: softwareRestoreVolumeKey(uid)) as? NSNumber)?.doubleValue
-                ?? 50
-        )
-        let visibleVolume = restoredVolume > 0 ? restoredVolume : 50
-        defaults.set(visibleVolume, forKey: softwareVolumeKey(uid))
-        return visibleVolume
-    }
-
-    private func softwareVolumeKey(_ uid: String) -> String {
-        "audio.softwareDevice.volume.\(uid)"
-    }
-
-    private func softwareMuteKey(_ uid: String) -> String {
-        "audio.softwareDevice.muted.\(uid)"
-    }
-
-    private func softwareRestoreVolumeKey(_ uid: String) -> String {
-        "audio.softwareDevice.restoreVolume.\(uid)"
+        softwareVolumeStore.setMuted(isMuted, uid: uid)
     }
 
     private func isSettable(

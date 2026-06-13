@@ -73,7 +73,7 @@ private func render(
     preferredStereoLeft: Int = 0,
     preferredStereoRight: Int = 1
 ) {
-    AudioProcessTapService.renderMappedBuffers(
+    AudioRenderPipeline.renderMappedBuffers(
         inputBuffers: input.bufferList,
         outputBuffers: output.bufferList,
         gain: gain,

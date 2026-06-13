@@ -64,6 +64,38 @@ struct AudioRouteIntentTests {
         #expect(first == second)
     }
 
+    @Test("Route resolver keeps system default route stream-specific")
+    func routeResolverKeepsSystemDefaultRouteStreamSpecific() throws {
+        let defaultDevice = outputDevice(id: 10, uid: "device-a", volume: 50, muted: false)
+        let item = appItem(routeIntent: .systemDefault)
+
+        let resolution = try #require(AudioRouteResolver.resolve(
+            for: item,
+            outputDevices: [defaultDevice],
+            defaultOutputDevice: defaultDevice
+        ))
+
+        #expect(resolution.usedFallback == false)
+        #expect(resolution.route.followsSystemDefault)
+        #expect(resolution.route.preferredTapSourceDeviceUID == "device-a")
+    }
+
+    @Test("Route resolver falls back when explicit device is unavailable")
+    func routeResolverFallsBackWhenExplicitDeviceIsUnavailable() throws {
+        let defaultDevice = outputDevice(id: 10, uid: "device-a", volume: 50, muted: false)
+        let item = appItem(routeIntent: .single("missing-device"))
+
+        let resolution = try #require(AudioRouteResolver.resolve(
+            for: item,
+            outputDevices: [defaultDevice],
+            defaultOutputDevice: defaultDevice
+        ))
+
+        #expect(resolution.usedFallback)
+        #expect(resolution.route.outputDeviceUID == "device-a")
+        #expect(resolution.route.followsSystemDefault == false)
+    }
+
     @Test("Software-backed devices expose processing gain")
     func softwareBackedDeviceProcessingGain() {
         let active = outputDevice(
@@ -91,6 +123,27 @@ struct AudioRouteIntentTests {
         #expect(active.softwareProcessingGain == 0.4)
         #expect(muted.softwareProcessingGain == 0)
         #expect(hardware.softwareProcessingGain == 1)
+    }
+
+    private func appItem(routeIntent: AudioAppOutputRouteIntent) -> AudioAppVolumeItem {
+        AudioAppVolumeItem(
+            id: "bundle.test",
+            name: "Test",
+            bundleIdentifier: "com.example.test",
+            processID: 123,
+            audioProcessObjectIDs: [1],
+            icon: nil,
+            isRunning: true,
+            isAudible: true,
+            volume: 100,
+            isMuted: false,
+            boost: .x1,
+            outputDeviceUID: routeIntent.primaryOutputDeviceUID,
+            outputRouteIntent: routeIntent,
+            equalizer: .flat,
+            isPinned: false,
+            isIgnored: false
+        )
     }
 
     private func outputDevice(

@@ -28,9 +28,7 @@ final class NotchWindowManager {
     private var cancellables = Set<AnyCancellable>()
     private var isObserving = false
     private weak var metricsService: SystemMetricsService?
-    private var isMenuBarPanelVisible = false
-    private var isMenuBarPanelClosing = false
-    private var menuBarAnchorRect: NSRect?
+    private var panelPresentation = NotchPanelPresentationState()
     private var menuBarDismissEventMonitor: Any?
 
     private init() {}
@@ -47,9 +45,7 @@ final class NotchWindowManager {
         cancellables.removeAll()
         isObserving = false
         metricsService = nil
-        isMenuBarPanelVisible = false
-        isMenuBarPanelClosing = false
-        menuBarAnchorRect = nil
+        panelPresentation.clear()
         stopMenuBarDismissMonitoring()
     }
 
@@ -89,7 +85,7 @@ final class NotchWindowManager {
 
     func toggle() {
         if preferences.panelActivationMode == .menuBarIcon {
-            if isMenuBarPanelVisible {
+            if panelPresentation.isMenuBarPanelVisible {
                 hideMenuBarPanel(animated: true)
             } else {
                 showMenuBarPanel(anchorRect: nil)
@@ -106,9 +102,9 @@ final class NotchWindowManager {
 
     func toggle(fromMenuBarAnchor anchorRect: NSRect?) {
         if preferences.panelActivationMode == .menuBarIcon {
-            if isMenuBarPanelVisible {
+            if panelPresentation.isMenuBarPanelVisible {
                 if let anchorRect {
-                    menuBarAnchorRect = anchorRect
+                    panelPresentation.show(anchorRect: anchorRect)
                 }
                 hideMenuBarPanel(animated: true)
             } else {
@@ -156,9 +152,7 @@ final class NotchWindowManager {
                     case .menuBarIcon:
                         self.hideMenuBarPanel(animated: false)
                     case .notchHover:
-                        self.isMenuBarPanelVisible = false
-                        self.isMenuBarPanelClosing = false
-                        self.menuBarAnchorRect = nil
+                        self.panelPresentation.resetForNotchHoverMode()
                         self.stopMenuBarDismissMonitoring()
                         if let metricsService = self.metricsService {
                             self.syncWindows(metricsService: metricsService, animated: true)
@@ -178,7 +172,7 @@ final class NotchWindowManager {
     }
 
     private func syncWindows(metricsService: SystemMetricsService, animated: Bool) {
-        if preferences.panelActivationMode == .menuBarIcon, !isMenuBarPanelVisible, !isMenuBarPanelClosing {
+        if preferences.panelActivationMode == .menuBarIcon, panelPresentation.shouldRemoveInactiveMenuBarPanelContext {
             removeAllContexts()
             return
         }
@@ -239,7 +233,7 @@ final class NotchWindowManager {
         animated: Bool
     ) {
         let viewModel = NotchViewModel()
-        if preferences.panelActivationMode == .menuBarIcon, isMenuBarPanelVisible {
+        if preferences.panelActivationMode == .menuBarIcon, panelPresentation.isMenuBarPanelVisible {
             viewModel.open()
         }
 
@@ -299,11 +293,7 @@ final class NotchWindowManager {
     private func showMenuBarPanel(anchorRect: NSRect?) {
         guard let metricsService else { return }
 
-        if let anchorRect {
-            menuBarAnchorRect = anchorRect
-        }
-        isMenuBarPanelVisible = true
-        isMenuBarPanelClosing = false
+        panelPresentation.show(anchorRect: anchorRect)
         startMenuBarDismissMonitoring()
         syncWindows(metricsService: metricsService, animated: false)
 
@@ -314,22 +304,18 @@ final class NotchWindowManager {
     }
 
     private func hideMenuBarPanel(animated: Bool) {
-        guard isMenuBarPanelVisible || isMenuBarPanelClosing else {
-            menuBarAnchorRect = nil
+        guard panelPresentation.beginHide(animated: animated) else {
             stopMenuBarDismissMonitoring()
             removeAllContexts()
             return
         }
 
-        isMenuBarPanelVisible = false
-        isMenuBarPanelClosing = animated
         for context in contexts.values {
             context.viewModel.close()
         }
 
         guard let metricsService else {
-            isMenuBarPanelClosing = false
-            menuBarAnchorRect = nil
+            panelPresentation.completeHide()
             stopMenuBarDismissMonitoring()
             removeAllContexts()
             return
@@ -338,30 +324,24 @@ final class NotchWindowManager {
         if animated {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self, weak metricsService] in
                 Task { @MainActor in
-                    guard let self, let metricsService, !self.isMenuBarPanelVisible else { return }
-                    self.isMenuBarPanelClosing = false
-                    self.menuBarAnchorRect = nil
+                    guard let self, let metricsService, !self.panelPresentation.isMenuBarPanelVisible else { return }
+                    self.panelPresentation.completeHide()
                     self.stopMenuBarDismissMonitoring()
                     self.syncWindows(metricsService: metricsService, animated: false)
                 }
             }
         } else {
-            isMenuBarPanelClosing = false
-            menuBarAnchorRect = nil
+            panelPresentation.completeHide()
             stopMenuBarDismissMonitoring()
             syncWindows(metricsService: metricsService, animated: false)
         }
     }
 
     private func menuBarPanelScreen() -> NSScreen? {
-        guard let anchorRect = menuBarAnchorRect else {
-            return displayService.screen(for: nil)
-        }
-
-        let anchorCenter = CGPoint(x: anchorRect.midX, y: anchorRect.midY)
-        return NSScreen.screens.first { screen in
-            screen.frame.contains(anchorCenter)
-        } ?? displayService.screen(for: nil)
+        NotchPanelPlacement.screen(
+            for: panelPresentation.menuBarAnchorRect,
+            fallback: displayService.screen(for: nil)
+        )
     }
 
     private func updateFrame(
@@ -406,10 +386,10 @@ final class NotchWindowManager {
 
     private func panelFrame(size: CGSize, on screen: NSScreen) -> NSRect {
         if preferences.panelActivationMode == .menuBarIcon,
-           isMenuBarPanelVisible || isMenuBarPanelClosing {
+           panelPresentation.shouldKeepMenuBarPanelContext {
             return NotchGeometry.menuBarPanelFrame(
                 size: size,
-                anchorRect: menuBarAnchorRect ?? fallbackMenuBarAnchorRect(on: screen),
+                anchorRect: panelPresentation.menuBarAnchorRect ?? NotchPanelPlacement.fallbackMenuBarAnchorRect(on: screen),
                 on: screen
             )
         }
@@ -418,17 +398,6 @@ final class NotchWindowManager {
             size: size,
             on: screen,
             style: preferences.appearanceStyle
-        )
-    }
-
-    private func fallbackMenuBarAnchorRect(on screen: NSScreen) -> NSRect {
-        let menuBarHeight = max(screen.frame.maxY - screen.visibleFrame.maxY, 24)
-        let size = CGSize(width: 28, height: menuBarHeight)
-        return NSRect(
-            x: screen.visibleFrame.maxX - size.width - 16,
-            y: screen.frame.maxY - size.height,
-            width: size.width,
-            height: size.height
         )
     }
 
@@ -452,7 +421,7 @@ final class NotchWindowManager {
     }
 
     private func dismissMenuBarPanelForExternalInteraction() {
-        guard preferences.panelActivationMode == .menuBarIcon, isMenuBarPanelVisible else { return }
+        guard preferences.panelActivationMode == .menuBarIcon, panelPresentation.isMenuBarPanelVisible else { return }
         hideMenuBarPanel(animated: true)
     }
 }

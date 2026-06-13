@@ -199,9 +199,10 @@ final class DisplayControlService {
         if success {
             saveStoredValue(clampedValue, for: control, storageID: display.storageID)
             if control == .volume {
-                setStoredVolumeMuted(clampedValue <= 0, storageID: display.storageID)
-                if clampedValue > 0 {
-                    saveStoredMutedRestoreVolume(clampedValue, storageID: display.storageID)
+                let policy = DeviceMutePolicy.volumeWrite(clampedValue)
+                setStoredVolumeMuted(policy.isMuted, storageID: display.storageID)
+                if let restoreVolume = policy.restoreVolumeToSave {
+                    saveStoredMutedRestoreVolume(restoreVolume, storageID: display.storageID)
                 }
             }
         }
@@ -216,35 +217,32 @@ final class DisplayControlService {
     func setVolumeMuted(_ isMuted: Bool, for display: ControlledDisplay) -> Bool {
         guard !display.isBuiltIn, display.supportsVolume else { return false }
 
-        if isMuted {
-            if display.volume > 0 {
-                saveStoredMutedRestoreVolume(display.volume, storageID: display.storageID)
-            }
+        let policy = isMuted
+            ? DeviceMutePolicy.mute(currentVolume: display.volume)
+            : DeviceMutePolicy.unmute(
+                currentVolume: display.volume,
+                savedRestoreVolume: storedMutedRestoreVolume(storageID: display.storageID),
+                storedVolume: storedValue(for: .volume, storageID: display.storageID),
+                defaultVolume: DisplayControlKind.volume.defaultValue
+            )
 
-            guard setValue(0, for: .volume, display: display) else { return false }
-            setStoredVolumeMuted(true, storageID: display.storageID)
-            return true
+        if let restoreVolume = policy.restoreVolumeToSave {
+            saveStoredMutedRestoreVolume(restoreVolume, storageID: display.storageID)
         }
 
-        let restoredVolume = storedMutedRestoreVolume(storageID: display.storageID)
-            ?? storedValue(for: .volume, storageID: display.storageID)
-            ?? DisplayControlKind.volume.defaultValue
-        let audibleVolume = max(1, restoredVolume)
-
-        guard setValue(audibleVolume, for: .volume, display: display) else { return false }
-        setStoredVolumeMuted(false, storageID: display.storageID)
+        guard setValue(policy.visibleVolume, for: .volume, display: display) else { return false }
+        setStoredVolumeMuted(policy.isMuted, storageID: display.storageID)
         return true
     }
 
     func volumeAfterSettingMuted(_ isMuted: Bool, for display: ControlledDisplay) -> Double? {
         guard !display.isBuiltIn, display.supportsVolume else { return nil }
-        guard !isMuted else { return 0 }
-
-        return max(
-            1,
-            storedMutedRestoreVolume(storageID: display.storageID)
-                ?? storedValue(for: .volume, storageID: display.storageID)
-                ?? DisplayControlKind.volume.defaultValue
+        return DeviceMutePolicy.volumeAfterSettingMuted(
+            isMuted,
+            currentVolume: display.volume,
+            savedRestoreVolume: storedMutedRestoreVolume(storageID: display.storageID),
+            storedVolume: storedValue(for: .volume, storageID: display.storageID),
+            defaultVolume: DisplayControlKind.volume.defaultValue
         )
     }
 

@@ -19,7 +19,7 @@ final class AudioControlStore: ObservableObject {
     private let processTapService = AudioProcessTapService()
     private let worker = AudioControlWorker()
     private let recordingPermission = AudioRecordingPermissionController.shared
-    private let defaults: UserDefaults
+    private let appSettingsStore: AudioAppSettingsStore
     private var hasLoaded = false
     private var monitorTask: Task<Void, Never>?
     private var isProcessMonitoringActive = false
@@ -36,7 +36,7 @@ final class AudioControlStore: ObservableObject {
     }
 
     private init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+        self.appSettingsStore = AudioAppSettingsStore(defaults: defaults)
         refreshCaptureSupport()
     }
 
@@ -363,7 +363,7 @@ final class AudioControlStore: ObservableObject {
         var item = appItems[index]
         update(&item)
         appItems[index] = item
-        saveSettings(for: item)
+        appSettingsStore.saveSettings(for: item)
         if showSavedMessage {
             lastMessage = nil
         }
@@ -380,175 +380,25 @@ final class AudioControlStore: ObservableObject {
                     && app.bundleIdentifier != Bundle.main.bundleIdentifier
                     && !app.isTerminated
             }
-            .sorted {
-                ($0.localizedName ?? "") < ($1.localizedName ?? "")
+            .map {
+                RunningAudioAppDescriptor(
+                    processID: $0.processIdentifier,
+                    bundleIdentifier: $0.bundleIdentifier,
+                    localizedName: $0.localizedName,
+                    icon: $0.icon
+                )
             }
 
-        let appsByPID = Dictionary(uniqueKeysWithValues: runningApps.map { ($0.processIdentifier, $0) })
-        let appsByBundleID = Dictionary(
-            runningApps.compactMap { app -> (String, NSRunningApplication)? in
-                guard let bundleIdentifier = app.bundleIdentifier else { return nil }
-                return (bundleIdentifier, app)
-            },
-            uniquingKeysWith: { first, _ in first }
+        let result = AudioAppItemBuilder.buildItems(
+            audioProcesses: audioProcesses,
+            runningApps: runningApps,
+            settingsStore: appSettingsStore,
+            audioProcessFallbackName: AppLanguageStore.shared.localizedString("Audio Process"),
+            pinnedFallbackName: AppLanguageStore.shared.localizedString("Pinned App")
         )
 
-        var groupedAudioProcesses: [String: [AudioProcessInfo]] = [:]
-        var representativeApps: [String: NSRunningApplication] = [:]
-
-        for process in audioProcesses {
-            let app = appsByPID[process.processID]
-                ?? process.bundleIdentifier.flatMap { appsByBundleID[$0] }
-            let id = app.map(storageID(for:))
-                ?? process.bundleIdentifier.map { "bundle.\($0)" }
-                ?? "process.\(process.processID)"
-
-            groupedAudioProcesses[id, default: []].append(process)
-            if let app {
-                representativeApps[id] = app
-            }
-        }
-
-        var items = groupedAudioProcesses.keys.sorted().map { id in
-            audioItem(
-                id: id,
-                app: representativeApps[id],
-                processes: groupedAudioProcesses[id] ?? []
-            )
-        }
-
-        var existingIDs = Set(items.map(\.id))
-        for app in runningApps {
-            let id = storageID(for: app)
-            guard !existingIDs.contains(id) else { continue }
-            items.append(audioItem(for: app))
-            existingIDs.insert(id)
-        }
-
-        let pinnedIDs = pinnedAppIDs()
-        for pinnedID in pinnedIDs where !existingIDs.contains(pinnedID) {
-            let settings = settings(for: pinnedID)
-            items.append(AudioAppVolumeItem(
-                id: pinnedID,
-                name: pinnedDisplayName(for: pinnedID),
-                bundleIdentifier: pinnedBundleIdentifier(for: pinnedID),
-                processID: nil,
-                audioProcessObjectIDs: [],
-                icon: nil,
-                isRunning: false,
-                isAudible: false,
-                volume: settings.volume,
-                isMuted: settings.isMuted,
-                boost: boostLevel(for: settings.boost),
-                outputDeviceUID: settings.outputDeviceUID,
-                outputRouteIntent: settings.outputRouteIntent,
-                equalizer: settings.equalizer,
-                isPinned: settings.isPinned,
-                isIgnored: settings.isIgnored
-            ))
-            existingIDs.insert(pinnedID)
-        }
-
-        appItems = sortedAppItems(items)
-        synchronizeProcessing(previousItems: previousItems, currentItems: items)
-        activatePendingProcessingIfPossible(currentItems: items)
-    }
-
-    private func audioItem(for app: NSRunningApplication) -> AudioAppVolumeItem {
-        audioItem(id: storageID(for: app), app: app, processes: [])
-    }
-
-    private func audioItem(
-        id: String,
-        app: NSRunningApplication?,
-        processes: [AudioProcessInfo]
-    ) -> AudioAppVolumeItem {
-        let settings = settings(for: id)
-        let representativeProcess = processes.first
-
-        return AudioAppVolumeItem(
-            id: id,
-            name: app?.localizedName
-                ?? app?.bundleIdentifier
-                ?? representativeProcess?.displayName
-                ?? representativeProcess?.bundleIdentifier
-                ?? AppLanguageStore.shared.localizedString("Audio Process"),
-            bundleIdentifier: app?.bundleIdentifier ?? representativeProcess?.bundleIdentifier,
-            processID: app?.processIdentifier ?? representativeProcess?.processID,
-            audioProcessObjectIDs: processes.map(\.objectID),
-            icon: app?.icon ?? representativeProcess?.icon,
-            isRunning: app != nil || !processes.isEmpty,
-            isAudible: processes.contains { $0.isRunningOutput },
-            volume: settings.volume,
-            isMuted: settings.isMuted,
-            boost: boostLevel(for: settings.boost),
-            outputDeviceUID: settings.outputDeviceUID,
-            outputRouteIntent: settings.outputRouteIntent,
-            equalizer: settings.equalizer,
-            isPinned: settings.isPinned,
-            isIgnored: settings.isIgnored
-        )
-    }
-
-    private func storageID(for app: NSRunningApplication) -> String {
-        if let bundleIdentifier = app.bundleIdentifier {
-            return "bundle.\(bundleIdentifier)"
-        }
-
-        return "process.\(app.localizedName ?? "unknown").\(app.processIdentifier)"
-    }
-
-    private func settings(for id: String) -> AudioAppVolumeSettings {
-        guard let data = defaults.data(forKey: settingsKey(for: id)),
-              let settings = try? JSONDecoder().decode(AudioAppVolumeSettings.self, from: data) else {
-            return .default
-        }
-
-        return settings
-    }
-
-    private func saveSettings(for item: AudioAppVolumeItem) {
-        let settings = AudioAppVolumeSettings(
-            volume: item.volume,
-            isMuted: item.isMuted,
-            boost: item.boost.rawValue,
-            outputDeviceUID: item.outputDeviceUID,
-            outputRouteIntent: item.outputRouteIntent,
-            equalizer: item.equalizer,
-            isPinned: item.isPinned,
-            isIgnored: item.isIgnored
-        )
-
-        if let data = try? JSONEncoder().encode(settings) {
-            defaults.set(data, forKey: settingsKey(for: item.id))
-        }
-
-        defaults.set(item.name, forKey: displayNameKey(for: item.id))
-        if let bundleIdentifier = item.bundleIdentifier {
-            defaults.set(bundleIdentifier, forKey: bundleIdentifierKey(for: item.id))
-        }
-    }
-
-    private func pinnedAppIDs() -> [String] {
-        defaults.dictionaryRepresentation().keys
-            .filter { $0.hasPrefix("audio.app.settings.") }
-            .compactMap { key -> String? in
-                let id = String(key.dropFirst("audio.app.settings.".count))
-                return settings(for: id).isPinned ? id : nil
-            }
-            .sorted()
-    }
-
-    private func pinnedDisplayName(for id: String) -> String {
-        defaults.string(forKey: displayNameKey(for: id)) ?? AppLanguageStore.shared.localizedString("Pinned App")
-    }
-
-    private func pinnedBundleIdentifier(for id: String) -> String? {
-        defaults.string(forKey: bundleIdentifierKey(for: id))
-    }
-
-    private func boostLevel(for value: Double) -> AudioBoostLevel {
-        AudioBoostLevel.allCases.first { $0.rawValue == value } ?? .x1
+        appItems = sortedAppItems(result.items)
+        applyProcessingPlan(previousItems: previousItems, currentItems: result.items)
     }
 
     private func sortedAppItems(_ items: [AudioAppVolumeItem]) -> [AudioAppVolumeItem] {
@@ -582,10 +432,6 @@ final class AudioControlStore: ObservableObject {
 
             return lhs.id < rhs.id
         }
-    }
-
-    private func settingsKey(for id: String) -> String {
-        "audio.app.settings.\(id)"
     }
 
     private func updateProcessingState(itemID: String) {
@@ -691,17 +537,6 @@ final class AudioControlStore: ObservableObject {
         }
     }
 
-    private func activatePendingProcessingIfPossible(currentItems: [AudioAppVolumeItem]) {
-        guard canControlAppAudio, !pendingProcessingAppIDs.isEmpty else { return }
-
-        for item in currentItems
-            where pendingProcessingAppIDs.contains(item.id)
-                && !manuallyDisabledProcessingAppIDs.contains(item.id)
-                && !item.isIgnored
-                && !item.audioProcessObjectIDs.isEmpty {
-            activateOrSwitchProcessing(itemID: item.id)
-        }
-    }
 
     private func deactivateProcessing(itemID: String) {
         processTapService.deactivate(itemID: itemID) { [weak self] result in
@@ -713,15 +548,11 @@ final class AudioControlStore: ObservableObject {
     }
 
     private func deviceProcessingGain(for item: AudioAppVolumeItem) -> Double {
-        switch item.outputRouteIntent {
-        case .systemDefault:
-            return defaultOutputDevice?.softwareProcessingGain ?? 1
-        case .single(let outputDeviceUID):
-            let device = outputDevices.first { $0.uid == outputDeviceUID } ?? defaultOutputDevice
-            return device?.softwareProcessingGain ?? 1
-        case .multi:
-            return 1
-        }
+        AudioRouteResolver.processingGain(
+            for: item,
+            outputDevices: outputDevices,
+            defaultOutputDevice: defaultOutputDevice
+        )
     }
 
     private func updateProcessingDeviceGainIfNeeded(for device: AudioOutputDevice) {
@@ -746,109 +577,58 @@ final class AudioControlStore: ObservableObject {
     }
 
     private func itemUsesSoftwareDeviceGain(_ item: AudioAppVolumeItem, deviceUID: String) -> Bool {
-        switch item.outputRouteIntent {
-        case .systemDefault:
-            return defaultOutputDevice?.uid == deviceUID
-        case .single(let outputDeviceUID):
-            if outputDevices.contains(where: { $0.uid == outputDeviceUID }) {
-                return outputDeviceUID == deviceUID
-            }
-            return defaultOutputDevice?.uid == deviceUID
-        case .multi:
-            return false
-        }
+        AudioRouteResolver.itemUsesSoftwareDeviceGain(
+            item,
+            deviceUID: deviceUID,
+            outputDevices: outputDevices,
+            defaultOutputDevice: defaultOutputDevice
+        )
     }
 
     private func resolvedRoute(for item: AudioAppVolumeItem) -> AudioProcessTapRoute? {
-        switch item.outputRouteIntent {
-        case .single(let outputDeviceUID):
-            if let device = outputDevices.first(where: { $0.uid == outputDeviceUID }) {
-                fallbackRoutedAppIDs.remove(item.id)
-                return AudioProcessTapRoute(
-                    outputDeviceID: device.id,
-                    outputDeviceUID: device.uid,
-                    outputDevices: [device],
-                    followsSystemDefault: false,
-                    preferredTapSourceDeviceUID: nil
-                )
-            }
-
-            if let defaultOutputDevice {
-                fallbackRoutedAppIDs.insert(item.id)
-                return AudioProcessTapRoute(
-                    outputDeviceID: defaultOutputDevice.id,
-                    outputDeviceUID: defaultOutputDevice.uid,
-                    outputDevices: [defaultOutputDevice],
-                    followsSystemDefault: false,
-                    preferredTapSourceDeviceUID: nil
-                )
-            }
-
+        guard let resolution = AudioRouteResolver.resolve(
+            for: item,
+            outputDevices: outputDevices,
+            defaultOutputDevice: defaultOutputDevice
+        ) else {
             return nil
-        case .multi(let outputDeviceUIDs):
-            let selectedDevices = outputDeviceUIDs.compactMap { uid in
-                outputDevices.first { $0.uid == uid }
-            }
-            if let firstDevice = selectedDevices.first {
-                fallbackRoutedAppIDs.remove(item.id)
-                return AudioProcessTapRoute(
-                    outputDeviceID: firstDevice.id,
-                    outputDeviceUID: firstDevice.uid,
-                    outputDevices: selectedDevices,
-                    followsSystemDefault: false,
-                    preferredTapSourceDeviceUID: nil
-                )
-            }
-
-            if let defaultOutputDevice {
-                fallbackRoutedAppIDs.insert(item.id)
-                return AudioProcessTapRoute(
-                    outputDeviceID: defaultOutputDevice.id,
-                    outputDeviceUID: defaultOutputDevice.uid,
-                    outputDevices: [defaultOutputDevice],
-                    followsSystemDefault: false,
-                    preferredTapSourceDeviceUID: nil
-                )
-            }
-
-            return nil
-        case .systemDefault:
-            fallbackRoutedAppIDs.remove(item.id)
-            guard let defaultOutputDevice else { return nil }
-            return AudioProcessTapRoute(
-                outputDeviceID: defaultOutputDevice.id,
-                outputDeviceUID: defaultOutputDevice.uid,
-                outputDevices: [defaultOutputDevice],
-                followsSystemDefault: true,
-                preferredTapSourceDeviceUID: defaultOutputDevice.uid
-            )
         }
+
+        if resolution.usedFallback {
+            fallbackRoutedAppIDs.insert(item.id)
+        } else {
+            fallbackRoutedAppIDs.remove(item.id)
+        }
+
+        return resolution.route
     }
 
     private func applyTapResult(_ result: AudioProcessTapResult, enabling: Bool) {
-        if result.success {
-            if enabling {
-                processingAppIDs.insert(result.itemID)
-                pendingProcessingAppIDs.remove(result.itemID)
-                manuallyDisabledProcessingAppIDs.remove(result.itemID)
-                if fallbackRoutedAppIDs.remove(result.itemID) != nil {
-                    lastMessage = .string("Selected output is unavailable. Using System Default.")
-                } else {
-                    lastMessage = .string("Per-app audio processing is active.")
-                }
-            } else {
-                processingAppIDs.remove(result.itemID)
-                lastMessage = nil
-            }
+        let reduction = AudioTapResultReducer.reduce(
+            result: result,
+            enabling: enabling,
+            state: AudioTapResultState(
+                processingItemIDs: processingAppIDs,
+                pendingItemIDs: pendingProcessingAppIDs,
+                manuallyDisabledItemIDs: manuallyDisabledProcessingAppIDs,
+                fallbackRoutedItemIDs: fallbackRoutedAppIDs
+            )
+        )
+
+        processingAppIDs = reduction.state.processingItemIDs
+        pendingProcessingAppIDs = reduction.state.pendingItemIDs
+        manuallyDisabledProcessingAppIDs = reduction.state.manuallyDisabledItemIDs
+        fallbackRoutedAppIDs = reduction.state.fallbackRoutedItemIDs
+        lastMessage = reduction.message
+
+        if reduction.permissionDenied {
+            recordingPermission.markDenied()
+            captureSupport = .permissionRequired(reduction.message ?? .string("Grant Screen & System Audio Recording permission to adjust per-app volume."))
+        }
+
+        if reduction.shouldResortItems {
             appItems = sortedAppItems(appItems)
-            return
         }
-
-        if applyPermissionFailureIfNeeded(result) {
-            return
-        }
-
-        lastMessage = result.message
     }
 
     private func applyDeviceVolumeWrite(_ result: AudioControlWorker.DeviceVolumeWriteResult) {
@@ -892,38 +672,29 @@ final class AudioControlStore: ObservableObject {
         lastMessage = .string("Output device mute is unavailable.")
     }
 
-    private func synchronizeProcessing(
+    private func applyProcessingPlan(
         previousItems: [String: AudioAppVolumeItem],
         currentItems: [AudioAppVolumeItem]
     ) {
         guard canControlAppAudio else { return }
 
-        let currentItemsByID = Dictionary(
-            currentItems.map { ($0.id, $0) },
-            uniquingKeysWith: { current, _ in current }
+        let plan = AudioProcessingPlanner.plan(
+            processingItemIDs: processingAppIDs,
+            pendingItemIDs: pendingProcessingAppIDs,
+            manuallyDisabledItemIDs: manuallyDisabledProcessingAppIDs,
+            previousItems: previousItems,
+            currentItems: currentItems
         )
 
-        for itemID in Array(processingAppIDs) {
-            guard let item = currentItemsByID[itemID],
-                  item.isAudible,
-                  !item.isIgnored else {
-                deactivateProcessing(itemID: itemID)
-                continue
-            }
-
-            guard let previous = previousItems[itemID] else { continue }
-            if previous.audioProcessObjectIDs != item.audioProcessObjectIDs {
-                restartProcessing(itemID: itemID)
-            }
+        for itemID in plan.deactivateItemIDs {
+            deactivateProcessing(itemID: itemID)
         }
-    }
-
-    private func displayNameKey(for id: String) -> String {
-        "audio.app.displayName.\(id)"
-    }
-
-    private func bundleIdentifierKey(for id: String) -> String {
-        "audio.app.bundleIdentifier.\(id)"
+        for itemID in plan.restartItemIDs {
+            restartProcessing(itemID: itemID)
+        }
+        for itemID in plan.activatePendingItemIDs {
+            activateOrSwitchProcessing(itemID: itemID)
+        }
     }
 
     private static func clamp(_ value: Double) -> Double {
@@ -965,115 +736,4 @@ final class AudioControlStore: ObservableObject {
         }
     }
 
-    private func applyPermissionFailureIfNeeded(_ result: AudioProcessTapResult) -> Bool {
-        guard result.statusCode == kAudioDevicePermissionsError else {
-            return false
-        }
-
-        let message = LocalizedMessage.string("Grant Screen & System Audio Recording permission to adjust per-app volume.")
-        recordingPermission.markDenied()
-        captureSupport = .permissionRequired(message)
-        lastMessage = message
-        return true
-    }
-}
-
-private final class AudioControlWorker {
-    private let queue = DispatchQueue(label: "peakhalo.audio-control", qos: .userInitiated)
-    private var pendingDeviceVolumeWrites: [AudioObjectID: Double] = [:]
-    private var deviceVolumeTimers: [AudioObjectID: DispatchWorkItem] = [:]
-    private let deviceVolumeDebounce: DispatchTimeInterval = .milliseconds(150)
-
-    struct RefreshResult {
-        let devices: [AudioOutputDevice]
-        let audioProcesses: [AudioProcessInfo]
-    }
-
-    struct DeviceVolumeWriteResult {
-        let deviceID: AudioObjectID
-        let value: Double
-        let success: Bool
-        let actualValue: Double?
-        let actualIsMuted: Bool?
-    }
-
-    struct DeviceMuteWriteResult {
-        let deviceID: AudioObjectID
-        let isMuted: Bool
-        let success: Bool
-        let actualValue: Double?
-        let actualIsMuted: Bool?
-    }
-
-    func refresh(
-        service: SystemAudioVolumeService,
-        processService: AudioProcessService,
-        includeAudioProcesses: Bool,
-        completion: @escaping (RefreshResult) -> Void
-    ) {
-        queue.async {
-            completion(RefreshResult(
-                devices: service.outputDevices(),
-                audioProcesses: includeAudioProcesses ? processService.audibleProcesses() : []
-            ))
-        }
-    }
-
-    func setDeviceVolume(
-        _ value: Double,
-        deviceID: AudioObjectID,
-        service: SystemAudioVolumeService,
-        completion: @escaping (DeviceVolumeWriteResult) -> Void
-    ) {
-        queue.async {
-            if let pendingValue = self.pendingDeviceVolumeWrites[deviceID],
-               abs(pendingValue - value) < 0.05 {
-                return
-            }
-
-            self.pendingDeviceVolumeWrites[deviceID] = value
-            self.deviceVolumeTimers[deviceID]?.cancel()
-
-            let timer = DispatchWorkItem { [weak self, service] in
-                guard let self,
-                      let latestValue = self.pendingDeviceVolumeWrites.removeValue(forKey: deviceID) else {
-                    return
-                }
-                self.deviceVolumeTimers.removeValue(forKey: deviceID)
-
-                let write = service.setDeviceVolumeAndReadState(latestValue, deviceID: deviceID)
-                completion(DeviceVolumeWriteResult(
-                    deviceID: deviceID,
-                    value: latestValue,
-                    success: write.success,
-                    actualValue: write.actualVolume ?? (write.success ? latestValue : nil),
-                    actualIsMuted: write.actualIsMuted
-                ))
-            }
-            self.deviceVolumeTimers[deviceID] = timer
-            self.queue.asyncAfter(deadline: .now() + self.deviceVolumeDebounce, execute: timer)
-        }
-    }
-
-    func setDeviceMuted(
-        _ isMuted: Bool,
-        deviceID: AudioObjectID,
-        service: SystemAudioVolumeService,
-        completion: @escaping (DeviceMuteWriteResult) -> Void
-    ) {
-        queue.async {
-            self.deviceVolumeTimers[deviceID]?.cancel()
-            self.deviceVolumeTimers.removeValue(forKey: deviceID)
-            self.pendingDeviceVolumeWrites.removeValue(forKey: deviceID)
-
-            let write = service.setDeviceMutedAndReadState(isMuted, deviceID: deviceID)
-            completion(DeviceMuteWriteResult(
-                deviceID: deviceID,
-                isMuted: isMuted,
-                success: write.success,
-                actualValue: write.actualVolume,
-                actualIsMuted: write.actualIsMuted
-            ))
-        }
-    }
 }
