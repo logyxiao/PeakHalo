@@ -107,6 +107,8 @@ final class ScreenCaptureVisibilityManager {
     private var isSystemCaptureActive = false
     private var capturePollingTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
+    private let capturePollingInterval: Duration = .seconds(2)
+    private let notificationFollowUpDelay: Duration = .milliseconds(250)
 
     private init() {
         DisplayPreferencesStore.shared.$hideFromScreenCapture
@@ -197,7 +199,7 @@ final class ScreenCaptureVisibilityManager {
         capturePollingTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 self?.updateCaptureActivityState()
-                try? await Task.sleep(for: .milliseconds(150))
+                try? await Task.sleep(for: self?.capturePollingInterval ?? .seconds(2))
             }
         }
     }
@@ -212,7 +214,7 @@ final class ScreenCaptureVisibilityManager {
 
         Task { @MainActor [weak self] in
             self?.updateCaptureActivityState()
-            try? await Task.sleep(for: .milliseconds(100))
+            try? await Task.sleep(for: self?.notificationFollowUpDelay ?? .milliseconds(250))
             self?.updateCaptureActivityState()
         }
     }

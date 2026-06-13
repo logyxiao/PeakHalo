@@ -31,14 +31,19 @@ struct SettingsWindowView: View {
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 250)
             .environment(\.defaultMinListRowHeight, 40)
-            .searchable(text: $searchText, placement: .sidebar, prompt: "Search Settings")
+            .searchable(
+                text: $searchText,
+                placement: .sidebar,
+                prompt: Text(languageStore.localizedString("Search Settings"))
+            )
         } detail: {
             detailView(for: resolvedSelection)
-                .navigationTitle(resolvedSelection.title)
+                .navigationTitle(languageStore.localizedString(resolvedSelection.localizationKey))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .navigationSplitViewStyle(.balanced)
         .environment(\.locale, languageStore.locale)
+        .id(languageStore.language.rawValue)
         .frame(minWidth: 720, minHeight: 540)
     }
 
@@ -66,7 +71,7 @@ struct SettingsWindowView: View {
                         .foregroundStyle(.white)
                 }
 
-            Text(tab.title)
+            Text(languageStore.localizedString(tab.localizationKey))
                 .font(.body)
         }
         .padding(.vertical, 2)

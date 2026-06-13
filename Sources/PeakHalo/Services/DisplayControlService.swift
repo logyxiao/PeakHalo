@@ -8,12 +8,20 @@ enum DisplayControlKind: Hashable, CaseIterable {
     case volume
 
     var title: String {
+        String(localized: String.LocalizationValue(titleKey))
+    }
+
+    var titleKey: String {
         switch self {
         case .brightness:
-            String(localized: "Brightness")
+            "Brightness"
         case .volume:
-            String(localized: "Volume")
+            "Volume"
         }
+    }
+
+    var localizedTitleMessage: LocalizedMessage {
+        .string(titleKey)
     }
 
     var systemImage: String {

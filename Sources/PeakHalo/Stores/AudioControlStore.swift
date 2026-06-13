@@ -11,7 +11,7 @@ final class AudioControlStore: ObservableObject {
     @Published private(set) var appItems: [AudioAppVolumeItem] = []
     @Published private(set) var processingAppIDs: Set<String> = []
     @Published private(set) var isRefreshing = false
-    @Published private(set) var lastMessage: String?
+    @Published private(set) var lastMessage: LocalizedMessage?
     @Published private(set) var captureSupport: AudioCaptureSupportState = .available
 
     private let service = SystemAudioVolumeService()
@@ -101,7 +101,7 @@ final class AudioControlStore: ObservableObject {
                 store.outputDevices = result.devices
                 store.refreshAppItems(audioProcesses: result.audioProcesses)
                 store.isRefreshing = false
-                store.lastMessage = result.devices.isEmpty ? String(localized: "No output devices found.") : nil
+                store.lastMessage = result.devices.isEmpty ? .string("No output devices found.") : nil
                 if store.defaultOutputDevice?.uid != previousDefaultUID {
                     store.routeDefaultFollowingApps()
                 }
@@ -122,7 +122,7 @@ final class AudioControlStore: ObservableObject {
 
     func setDefaultOutputDevice(_ deviceID: AudioObjectID) {
         guard service.setDefaultOutputDevice(deviceID) else {
-            lastMessage = String(localized: "Could not switch output device.")
+            lastMessage = .string("Could not switch output device.")
             return
         }
 
@@ -286,18 +286,18 @@ final class AudioControlStore: ObservableObject {
     func playbackDeviceTitle(for item: AudioAppVolumeItem) -> String {
         switch item.outputRouteIntent {
         case .systemDefault:
-            return String(localized: "System Default")
+            return AppLanguageStore.shared.localizedString("System Default")
         case .single(let uid):
-            return outputDevices.first { $0.uid == uid }?.name ?? String(localized: "Unknown Output")
+            return outputDevices.first { $0.uid == uid }?.name ?? AppLanguageStore.shared.localizedString("Unknown Output")
         case .multi(let uids):
             let names = uids.compactMap { uid in
                 outputDevices.first { $0.uid == uid }?.name
             }
-            guard !names.isEmpty else { return String(localized: "Unknown Outputs") }
+            guard !names.isEmpty else { return AppLanguageStore.shared.localizedString("Unknown Outputs") }
             if names.count == 1 {
                 return names[0]
             }
-            return String.localizedStringWithFormat(String(localized: "%d Outputs"), names.count)
+            return AppLanguageStore.shared.localizedString("%d Outputs", arguments: [.int(names.count)])
         }
     }
 
@@ -472,7 +472,7 @@ final class AudioControlStore: ObservableObject {
                 ?? app?.bundleIdentifier
                 ?? representativeProcess?.displayName
                 ?? representativeProcess?.bundleIdentifier
-                ?? String(localized: "Audio Process"),
+                ?? AppLanguageStore.shared.localizedString("Audio Process"),
             bundleIdentifier: app?.bundleIdentifier ?? representativeProcess?.bundleIdentifier,
             processID: app?.processIdentifier ?? representativeProcess?.processID,
             audioProcessObjectIDs: processes.map(\.objectID),
@@ -540,7 +540,7 @@ final class AudioControlStore: ObservableObject {
     }
 
     private func pinnedDisplayName(for id: String) -> String {
-        defaults.string(forKey: displayNameKey(for: id)) ?? String(localized: "Pinned App")
+        defaults.string(forKey: displayNameKey(for: id)) ?? AppLanguageStore.shared.localizedString("Pinned App")
     }
 
     private func pinnedBundleIdentifier(for id: String) -> String? {
@@ -645,7 +645,7 @@ final class AudioControlStore: ObservableObject {
 
         guard !item.audioProcessObjectIDs.isEmpty else {
             pendingProcessingAppIDs.insert(itemID)
-            lastMessage = String(localized: "No active audio process is available for this app.")
+            lastMessage = .string("No active audio process is available for this app.")
             return
         }
 
@@ -832,9 +832,9 @@ final class AudioControlStore: ObservableObject {
                 pendingProcessingAppIDs.remove(result.itemID)
                 manuallyDisabledProcessingAppIDs.remove(result.itemID)
                 if fallbackRoutedAppIDs.remove(result.itemID) != nil {
-                    lastMessage = String(localized: "Selected output is unavailable. Using System Default.")
+                    lastMessage = .string("Selected output is unavailable. Using System Default.")
                 } else {
-                    lastMessage = String(localized: "Per-app audio processing is active.")
+                    lastMessage = .string("Per-app audio processing is active.")
                 }
             } else {
                 processingAppIDs.remove(result.itemID)
@@ -868,7 +868,7 @@ final class AudioControlStore: ObservableObject {
             outputDevices[index].volume = actualValue
         }
         updateProcessingDeviceGainIfNeeded(for: outputDevices[index])
-        lastMessage = String(localized: "Output device volume is unavailable.")
+        lastMessage = .string("Output device volume is unavailable.")
     }
 
     private func applyDeviceMuteWrite(_ result: AudioControlWorker.DeviceMuteWriteResult) {
@@ -889,7 +889,7 @@ final class AudioControlStore: ObservableObject {
         }
         outputDevices[index].isMuted = result.actualIsMuted ?? !result.isMuted
         updateProcessingDeviceGainIfNeeded(for: outputDevices[index])
-        lastMessage = String(localized: "Output device mute is unavailable.")
+        lastMessage = .string("Output device mute is unavailable.")
     }
 
     private func synchronizeProcessing(
@@ -936,19 +936,19 @@ final class AudioControlStore: ObservableObject {
         case .authorized:
             return .available
         case .unknown:
-            return .permissionRequired(String(localized: "Allow Screen & System Audio Recording to adjust per-app volume."))
+            return .permissionRequired(.string("Allow Screen & System Audio Recording to adjust per-app volume."))
         case .denied:
-            return .permissionRequired(String(localized: "Grant Screen & System Audio Recording permission to adjust per-app volume."))
+            return .permissionRequired(.string("Grant Screen & System Audio Recording permission to adjust per-app volume."))
         case .unsupported:
             break
         }
 
-        return .unsupported(String(localized: "Per-app volume requires macOS 14.4 or later."))
+        return .unsupported(.string("Per-app volume requires macOS 14.4 or later."))
     }
 
     private func showAppAudioPermissionMessage() {
         requestAudioCapturePermissionIfNeeded()
-        lastMessage = captureSupport.message ?? String(localized: "Grant Screen & System Audio Recording permission to adjust per-app volume.")
+        lastMessage = captureSupport.message ?? .string("Grant Screen & System Audio Recording permission to adjust per-app volume.")
     }
 
     private func requestAudioCapturePermissionIfNeeded() {
@@ -970,7 +970,7 @@ final class AudioControlStore: ObservableObject {
             return false
         }
 
-        let message = String(localized: "Grant Screen & System Audio Recording permission to adjust per-app volume.")
+        let message = LocalizedMessage.string("Grant Screen & System Audio Recording permission to adjust per-app volume.")
         recordingPermission.markDenied()
         captureSupport = .permissionRequired(message)
         lastMessage = message

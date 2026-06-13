@@ -139,7 +139,7 @@ final class AudioProcessTapService {
                 completion(AudioProcessTapResult(
                     itemID: itemID,
                     success: false,
-                    message: String(localized: "Process taps require macOS 14.2 or later.")
+                    message: .string("Process taps require macOS 14.2 or later.")
                 ))
                 return
             }
@@ -148,7 +148,7 @@ final class AudioProcessTapService {
                 completion(AudioProcessTapResult(
                     itemID: itemID,
                     success: false,
-                    message: String(localized: "No output device is available for audio processing.")
+                    message: .string("No output device is available for audio processing.")
                 ))
                 return
             }
@@ -157,7 +157,7 @@ final class AudioProcessTapService {
                 completion(AudioProcessTapResult(
                     itemID: itemID,
                     success: false,
-                    message: String(localized: "No active audio process is available for this app.")
+                    message: .string("No active audio process is available for this app.")
                 ))
                 return
             }
@@ -208,7 +208,7 @@ final class AudioProcessTapService {
                 completion(AudioProcessTapResult(
                     itemID: itemID,
                     success: false,
-                    message: error.localizedDescription,
+                    message: LocalizedMessage(error.localizedDescription),
                     statusCode: statusCode
                 ))
             }
@@ -248,9 +248,9 @@ final class AudioProcessTapService {
             completion(AudioProcessTapResult(
                 itemID: itemID,
                 success: status == noErr,
-                message: status == noErr ? nil : String(
-                    format: String(localized: "Could not destroy audio processing chain (%d)."),
-                    Int(status)
+                message: status == noErr ? nil : LocalizedMessage(
+                    "Could not destroy audio processing chain (%d).",
+                    arguments: [.int(Int(status))]
                 )
             ))
         }
@@ -463,7 +463,7 @@ final class AudioProcessTapService {
             completion(AudioProcessTapResult(
                 itemID: activeTap.itemID,
                 success: false,
-                message: error.localizedDescription,
+                message: LocalizedMessage(error.localizedDescription),
                 statusCode: statusCode
             ))
         }

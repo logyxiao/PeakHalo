@@ -8,7 +8,7 @@ enum NotchAppearanceStyle: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var localizedName: LocalizedStringKey {
+    var localizedNameKey: String {
         switch self {
         case .standardNotch:
             "Standard Notch"
@@ -17,13 +17,21 @@ enum NotchAppearanceStyle: String, CaseIterable, Identifiable {
         }
     }
 
-    var localizedDescription: LocalizedStringKey {
+    var localizedName: LocalizedStringKey {
+        LocalizedStringKey(localizedNameKey)
+    }
+
+    var localizedDescriptionKey: String {
         switch self {
         case .standardNotch:
             "Classic notch shape attached to the top edge of the screen."
         case .dynamicIsland:
             "Floating pill shape with a small gap from the top edge."
         }
+    }
+
+    var localizedDescription: LocalizedStringKey {
+        LocalizedStringKey(localizedDescriptionKey)
     }
 }
 
@@ -33,7 +41,7 @@ enum PanelActivationMode: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var localizedName: LocalizedStringKey {
+    var localizedNameKey: String {
         switch self {
         case .notchHover:
             "Notch Hover"
@@ -42,13 +50,21 @@ enum PanelActivationMode: String, CaseIterable, Identifiable {
         }
     }
 
-    var localizedDescription: LocalizedStringKey {
+    var localizedName: LocalizedStringKey {
+        LocalizedStringKey(localizedNameKey)
+    }
+
+    var localizedDescriptionKey: String {
         switch self {
         case .notchHover:
             "Move the pointer into the notch or island to expand the controls."
         case .menuBarIcon:
             "Click the menu bar icon to expand or collapse the controls."
         }
+    }
+
+    var localizedDescription: LocalizedStringKey {
+        LocalizedStringKey(localizedDescriptionKey)
     }
 }
 
@@ -58,13 +74,17 @@ enum MonitorLayoutStyle: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var localizedName: LocalizedStringKey {
+    var localizedNameKey: String {
         switch self {
         case .split:
             "Split Layout"
         case .cards:
             "Card Layout"
         }
+    }
+
+    var localizedName: LocalizedStringKey {
+        LocalizedStringKey(localizedNameKey)
     }
 
     var symbol: String {

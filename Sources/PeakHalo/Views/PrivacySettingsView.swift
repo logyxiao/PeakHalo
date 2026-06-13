@@ -4,55 +4,56 @@ import SwiftUI
 
 struct PermissionsSettingsView: View {
     @ObservedObject private var audioPermission = AudioRecordingPermissionController.shared
+    @ObservedObject private var languageStore = AppLanguageStore.shared
     @State private var bluetoothAuthorization = CBManager.authorization
 
     var body: some View {
         Form {
             Section {
                 permissionRow(
-                    title: "Screen & System Audio Recording",
-                    subtitle: "Required for per-app volume, mute, boost, equalizer, and playback device routing.",
+                    title: languageStore.localizedString("Screen & System Audio Recording"),
+                    subtitle: languageStore.localizedString("Required for per-app volume, mute, boost, equalizer, and playback device routing."),
                     systemImage: "waveform.badge.magnifyingglass",
                     iconTint: .purple,
                     status: audioPermissionStatus
                 ) {
-                    Button("Request Access") {
+                    Button(languageStore.localizedString("Request Access")) {
                         requestAudioCapturePermission()
                     }
                     .disabled(audioPermission.status == .authorized || audioPermission.status == .unsupported)
 
-                    Button("Open System Settings") {
+                    Button(languageStore.localizedString("Open System Settings")) {
                         openSystemSettings(anchor: "Privacy_ScreenCapture")
                     }
 
-                    Button("Check Again") {
+                    Button(languageStore.localizedString("Check Again")) {
                         _ = audioPermission.refreshStatus()
                     }
                 }
                 .padding(.vertical, 4)
             } header: {
-                Text("Screen & Audio Capture")
+                Text(languageStore.localizedString("Screen & Audio Capture"))
             }
 
             Section {
                 permissionRow(
-                    title: "Bluetooth",
-                    subtitle: "Used to show battery levels for connected accessories.",
+                    title: languageStore.localizedString("Bluetooth"),
+                    subtitle: languageStore.localizedString("Used to show battery levels for connected accessories."),
                     systemImage: "bluetooth",
                     iconTint: .blue,
                     status: bluetoothPermissionStatus
                 ) {
-                    Button("Open System Settings") {
+                    Button(languageStore.localizedString("Open System Settings")) {
                         openSystemSettings(anchor: "Privacy_Bluetooth")
                     }
 
-                    Button("Check Again") {
+                    Button(languageStore.localizedString("Check Again")) {
                         refreshBluetoothAuthorization()
                     }
                 }
                 .padding(.vertical, 4)
             } header: {
-                Text("Bluetooth Accessory Access")
+                Text(languageStore.localizedString("Bluetooth Accessory Access"))
             }
         }
         .formStyle(.grouped)
@@ -95,8 +96,8 @@ struct PermissionsSettingsView: View {
     }
 
     private func permissionRow<Actions: View>(
-        title: LocalizedStringKey,
-        subtitle: LocalizedStringKey,
+        title: String,
+        subtitle: String,
         systemImage: String,
         iconTint: Color,
         status: PermissionStatusPresentation,
@@ -148,7 +149,7 @@ struct PermissionsSettingsView: View {
 
     private func statusBadge(_ status: PermissionStatusPresentation) -> some View {
         Label {
-            Text(status.title)
+            Text(languageStore.localizedString(status.titleKey))
         } icon: {
             Image(systemName: status.symbol)
         }
@@ -182,42 +183,42 @@ struct PermissionsSettingsView: View {
 }
 
 private struct PermissionStatusPresentation {
-    let title: LocalizedStringKey
+    let titleKey: String
     let symbol: String
     let tint: Color
 
     static let authorized = PermissionStatusPresentation(
-        title: "Allowed",
+        titleKey: "Allowed",
         symbol: "checkmark.circle.fill",
         tint: .green
     )
 
     static let denied = PermissionStatusPresentation(
-        title: "Denied",
+        titleKey: "Denied",
         symbol: "xmark.circle.fill",
         tint: .red
     )
 
     static let restricted = PermissionStatusPresentation(
-        title: "Restricted",
+        titleKey: "Restricted",
         symbol: "lock.circle.fill",
         tint: .orange
     )
 
     static let notDetermined = PermissionStatusPresentation(
-        title: "Not Determined",
+        titleKey: "Not Determined",
         symbol: "questionmark.circle.fill",
         tint: .orange
     )
 
     static let unsupported = PermissionStatusPresentation(
-        title: "Unsupported",
+        titleKey: "Unsupported",
         symbol: "exclamationmark.triangle.fill",
         tint: .secondary
     )
 
     static let unknown = PermissionStatusPresentation(
-        title: "Unknown",
+        titleKey: "Unknown",
         symbol: "questionmark.circle",
         tint: .secondary
     )

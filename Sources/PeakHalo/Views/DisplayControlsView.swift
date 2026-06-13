@@ -4,6 +4,7 @@ import SwiftUI
 struct DisplayControlsView: View {
     let compact: Bool
     @ObservedObject private var controller = DisplayControlController.shared
+    @ObservedObject private var languageStore = AppLanguageStore.shared
     @Environment(\.colorScheme) private var colorScheme
 
     private var visibleDisplays: [ControlledDisplay] {
@@ -17,7 +18,7 @@ struct DisplayControlsView: View {
                     displayList
 
                     if let message = controller.lastMessage {
-                        Text(message)
+                        Text(languageStore.localizedString(message))
                             .font(.caption2)
                             .foregroundStyle(secondaryColor)
                             .lineLimit(2)
@@ -36,7 +37,7 @@ struct DisplayControlsView: View {
             Form {
                 Section {
                     if visibleDisplays.isEmpty {
-                        Text(controller.isRefreshing ? "Scanning Displays" : "No Controllable Displays")
+                        Text(languageStore.localizedString(controller.isRefreshing ? "Scanning Displays" : "No Controllable Displays"))
                             .font(.callout)
                             .foregroundStyle(secondaryColor)
                             .frame(maxWidth: .infinity, minHeight: 110, alignment: .center)
@@ -46,13 +47,13 @@ struct DisplayControlsView: View {
                         }
                     }
                 } header: {
-                    Text("Connected Displays")
+                    Text(languageStore.localizedString("Connected Displays"))
                 } footer: {
                     if let message = controller.lastMessage {
-                        Text(message)
+                        Text(languageStore.localizedString(message))
                             .foregroundStyle(.red)
                     } else {
-                        Text("Adjust the brightness of your connected monitors.")
+                        Text(languageStore.localizedString("Adjust the brightness of your connected monitors."))
                     }
                 }
             }
@@ -66,7 +67,7 @@ struct DisplayControlsView: View {
     @ViewBuilder
     private var displayList: some View {
         if visibleDisplays.isEmpty {
-            Text(controller.isRefreshing ? "Scanning Displays" : "No Controllable Displays")
+            Text(languageStore.localizedString(controller.isRefreshing ? "Scanning Displays" : "No Controllable Displays"))
                 .font(.caption)
                 .foregroundStyle(secondaryColor)
                 .frame(maxWidth: .infinity, minHeight: 64, alignment: .center)
@@ -97,7 +98,7 @@ struct DisplayControlsView: View {
                         .foregroundStyle(primaryColor)
                         .lineLimit(1)
 
-                    Text(display.isBuiltIn ? "Built-in" : "External")
+                    Text(languageStore.localizedString(display.isBuiltIn ? "Built-in" : "External"))
                         .font(.caption2)
                         .foregroundStyle(secondaryColor)
                         .lineLimit(1)
@@ -122,9 +123,11 @@ struct DisplayControlsView: View {
         }
         .frame(maxWidth: .infinity, minHeight: compact ? 39 : 44, maxHeight: compact ? 39 : 44)
         .contentShape(Rectangle())
-        .help(display.supportsBrightness ? Text("Brightness") : Text(display.unavailableReason(for: .brightness) ?? "Brightness"))
+        .help(Text(display.supportsBrightness
+            ? languageStore.localizedString("Brightness")
+            : display.unavailableReason(for: .brightness) ?? languageStore.localizedString("Brightness")))
         .contextMenu {
-            Button("Refresh Displays") {
+            Button(languageStore.localizedString("Refresh Displays")) {
                 controller.refresh()
             }
         }
@@ -183,7 +186,7 @@ final class DisplayControlController: ObservableObject {
 
     @Published private(set) var displays: [ControlledDisplay] = []
     @Published private(set) var isRefreshing = false
-    @Published private(set) var lastMessage: String?
+    @Published private(set) var lastMessage: LocalizedMessage?
 
     private let service = DisplayControlService()
     private let worker = DisplayControlWorker()
@@ -205,7 +208,7 @@ final class DisplayControlController: ObservableObject {
                 self?.hasLoaded = true
                 self?.displays = displays
                 self?.isRefreshing = false
-                self?.lastMessage = displays.isEmpty ? String(localized: "No display control information is available.") : nil
+                self?.lastMessage = displays.isEmpty ? .string("No display control information is available.") : nil
             }
         }
     }
@@ -246,6 +249,12 @@ final class DisplayControlController: ObservableObject {
         }
 
         displays[index].setSupported(false, for: result.control)
-        lastMessage = "\(displays[index].name) \(result.control.title) \(String(localized: "is unavailable"))"
+        lastMessage = LocalizedMessage(
+            "%@ %@ is unavailable",
+            arguments: [
+                .string(displays[index].name),
+                .message(result.control.localizedTitleMessage)
+            ]
+        )
     }
 }

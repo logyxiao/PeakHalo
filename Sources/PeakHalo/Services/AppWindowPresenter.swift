@@ -12,8 +12,8 @@ final class AppWindowPresenter {
 
     private init() {
         languageStore.$language
-            .sink { [weak self] _ in
-                self?.refreshSettingsWindowTitle()
+            .sink { [weak self] language in
+                self?.refreshSettingsWindowTitle(language: language)
             }
             .store(in: &cancellables)
     }
@@ -53,7 +53,10 @@ final class AppWindowPresenter {
         window.makeKeyAndOrderFront(nil)
     }
 
-    private func refreshSettingsWindowTitle() {
-        settingsWindowController?.window?.title = languageStore.localizedString("PeakHalo Settings")
+    private func refreshSettingsWindowTitle(language: AppLanguage? = nil) {
+        settingsWindowController?.window?.title = AppLocalization.localizedString(
+            "PeakHalo Settings",
+            language: language ?? languageStore.language
+        )
     }
 }

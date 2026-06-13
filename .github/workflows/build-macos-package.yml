@@ -33,6 +33,10 @@ jobs:
       - name: Build installer packages
         env:
           SWIFT_BUILD_CONFIGURATION: release
+          SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+          REQUIRE_SPARKLE_APPCAST: "1"
+          CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
         shell: bash
         run: |
           set -euxo pipefail
@@ -50,6 +54,7 @@ jobs:
             dist/release/*.dmg
             dist/release/*.pkg
             dist/release/*.zip
+            dist/release/appcast.xml
           if-no-files-found: error
 
       - name: Publish GitHub Release

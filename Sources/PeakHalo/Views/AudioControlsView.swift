@@ -4,6 +4,7 @@ import SwiftUI
 struct AudioControlsView: View {
     let compact: Bool
     @ObservedObject private var store = AudioControlStore.shared
+    @ObservedObject private var languageStore = AppLanguageStore.shared
     @Environment(\.colorScheme) private var colorScheme
     @State private var playbackPickerItemID: String?
     @State private var expandedEqualizerItemID: String?
@@ -17,7 +18,7 @@ struct AudioControlsView: View {
                 appList
 
                 if let message = store.lastMessage {
-                    Text(message)
+                    Text(languageStore.localizedString(message))
                         .font(.caption2)
                         .foregroundStyle(secondaryColor)
                         .lineLimit(2)
@@ -40,7 +41,7 @@ struct AudioControlsView: View {
     @ViewBuilder
     private var outputDeviceList: some View {
         if store.outputDevices.isEmpty {
-            Text(store.isRefreshing ? "Scanning Audio" : "No output devices found.")
+            Text(languageStore.localizedString(store.isRefreshing ? "Scanning Audio" : "No output devices found."))
                 .font(compact ? .caption : .callout)
                 .foregroundStyle(secondaryColor)
                 .frame(maxWidth: .infinity, minHeight: compact ? 64 : 110, alignment: .center)
@@ -113,7 +114,7 @@ struct AudioControlsView: View {
     }
 
     private var appsHeader: some View {
-        Text("Apps")
+        Text(languageStore.localizedString("Apps"))
             .font(.system(size: compact ? 11 : 12, weight: .bold))
             .textCase(.uppercase)
             .foregroundStyle(secondaryColor)
@@ -131,7 +132,7 @@ struct AudioControlsView: View {
                 appRows
             }
         case .unsupported(let reason):
-            Text(reason)
+            Text(languageStore.localizedString(reason))
                 .font(.caption2)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
@@ -141,7 +142,7 @@ struct AudioControlsView: View {
     @ViewBuilder
     private var appRows: some View {
         if store.appItems.isEmpty {
-            Text("No running apps found.")
+            Text(languageStore.localizedString("No running apps found."))
                 .font(.caption)
                 .foregroundStyle(secondaryColor)
                 .frame(maxWidth: .infinity, minHeight: compact ? 50 : 80, alignment: .center)
@@ -154,7 +155,7 @@ struct AudioControlsView: View {
         }
     }
 
-    private func permissionBanner(_ reason: String) -> some View {
+    private func permissionBanner(_ reason: LocalizedMessage) -> some View {
         VStack(alignment: .leading, spacing: compact ? 5 : 7) {
             HStack(alignment: .top, spacing: 7) {
                 Image(systemName: "lock.shield")
@@ -162,21 +163,21 @@ struct AudioControlsView: View {
                     .foregroundStyle(.orange)
                     .frame(width: compact ? 16 : 18)
 
-                Text(reason)
+                Text(languageStore.localizedString(reason))
                     .font(.caption2)
                     .foregroundStyle(primaryColor.opacity(0.78))
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack(spacing: 8) {
-                Button("Open System Settings") {
+                Button(languageStore.localizedString("Open System Settings")) {
                     openAudioPrivacySettings()
                 }
                 .buttonStyle(.plain)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(controlProgressColor)
 
-                Button("Check Again") {
+                Button(languageStore.localizedString("Check Again")) {
                     store.refreshCaptureSupport()
                     store.refresh()
                 }
@@ -262,13 +263,13 @@ struct AudioControlsView: View {
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .contextMenu {
-            Button(item.isPinned ? "Unpin App" : "Pin App") {
+            Button(languageStore.localizedString(item.isPinned ? "Unpin App" : "Pin App")) {
                 store.togglePinned(itemID: item.id)
             }
-            Button(item.isIgnored ? "Include App" : "Ignore App") {
+            Button(languageStore.localizedString(item.isIgnored ? "Include App" : "Ignore App")) {
                 store.toggleIgnored(itemID: item.id)
             }
-            Button("Open System Settings") {
+            Button(languageStore.localizedString("Open System Settings")) {
                 openAudioPrivacySettings()
             }
         }
@@ -294,7 +295,7 @@ struct AudioControlsView: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .disabled(!controlsEnabled)
-        .help("Boost")
+        .help(languageStore.localizedString("Boost"))
     }
 
     private func equalizerButton(_ item: AudioAppVolumeItem) -> some View {
@@ -313,7 +314,7 @@ struct AudioControlsView: View {
         .disabled(!controlsEnabled)
         .foregroundStyle(isActive ? .blue : primaryColor.opacity(controlsEnabled ? 0.62 : 0.24))
         .fixedSize()
-        .help(isExpanded ? "Close Equalizer" : "Equalizer")
+        .help(languageStore.localizedString(isExpanded ? "Close Equalizer" : "Equalizer"))
     }
 
     private func playbackDeviceMenu(_ item: AudioAppVolumeItem) -> some View {
@@ -361,7 +362,7 @@ struct AudioControlsView: View {
         }
         .fixedSize()
         .disabled(!controlsEnabled || store.outputDevices.isEmpty)
-        .help("Playback Device")
+        .help(languageStore.localizedString("Playback Device"))
     }
 
     private func processingButton(_ item: AudioAppVolumeItem) -> some View {
@@ -379,7 +380,7 @@ struct AudioControlsView: View {
         .disabled(!controlsEnabled)
         .foregroundStyle(isEnabled ? .green : primaryColor.opacity(controlsEnabled ? 0.72 : 0.28))
         .fixedSize()
-        .help(isEnabled ? "Disable Processing" : "Enable Processing")
+        .help(languageStore.localizedString(isEnabled ? "Disable Processing" : "Enable Processing"))
     }
 
     private func iconButton(
@@ -387,7 +388,7 @@ struct AudioControlsView: View {
         isActive: Bool,
         isEnabled: Bool,
         activeColor: Color,
-        help: LocalizedStringKey,
+        help: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -398,7 +399,7 @@ struct AudioControlsView: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .foregroundStyle(isActive ? activeColor : primaryColor.opacity(isEnabled ? 0.58 : 0.24))
-        .help(help)
+        .help(languageStore.localizedString(help))
     }
 
     private func openAudioPrivacySettings() {
@@ -411,20 +412,20 @@ struct AudioControlsView: View {
 
     private func appStatusText(for item: AudioAppVolumeItem) -> String {
         guard store.canControlAppAudio else {
-            return String(localized: "Authorization Required")
+            return languageStore.localizedString("Authorization Required")
         }
 
         if item.isAudible {
             return store.isProcessingEnabled(itemID: item.id)
-                ? String(localized: "Processing")
-                : String(localized: "Playing")
+                ? languageStore.localizedString("Processing")
+                : languageStore.localizedString("Playing")
         }
 
         if item.isRunning {
-            return String(localized: "Running")
+            return languageStore.localizedString("Running")
         }
 
-        return String(localized: "Pinned")
+        return languageStore.localizedString("Pinned")
     }
 
     private func appSubtitle(for item: AudioAppVolumeItem) -> String {
@@ -520,6 +521,7 @@ private struct AudioSlider: View {
 }
 
 private struct AudioEqualizerPanelView: View {
+    @ObservedObject private var languageStore = AppLanguageStore.shared
     let item: AudioAppVolumeItem
     let compact: Bool
     let primaryColor: Color
@@ -561,7 +563,7 @@ private struct AudioEqualizerPanelView: View {
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "wand.and.stars")
-                        Text("Preset")
+                        Text(languageStore.localizedString("Preset"))
                     }
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(tint)
@@ -621,6 +623,7 @@ private struct AudioEqualizerPanelView: View {
 }
 
 private struct PlaybackDevicePickerView: View {
+    @ObservedObject private var languageStore = AppLanguageStore.shared
     let item: AudioAppVolumeItem
     let devices: [AudioOutputDevice]
     let compact: Bool
@@ -638,8 +641,8 @@ private struct PlaybackDevicePickerView: View {
             VStack(spacing: compact ? 2 : 4) {
                 if !item.outputRouteIntent.isMulti {
                     pickerRow(
-                        title: "System Audio",
-                        subtitle: "Follows macOS default",
+                        title: languageStore.localizedString("System Audio"),
+                        subtitle: languageStore.localizedString("Follows macOS default"),
                         systemImage: "globe",
                         isSelected: item.outputRouteIntent == .systemDefault,
                         action: { onSelectRoute(.systemDefault) }
@@ -673,7 +676,7 @@ private struct PlaybackDevicePickerView: View {
     private var modeSegments: some View {
         HStack(spacing: 0) {
             modeSegment(
-                title: "Single",
+                title: languageStore.localizedString("Single"),
                 isSelected: !item.outputRouteIntent.isMulti,
                 action: {
                     onSelectRoute(singleRouteAfterLeavingMulti())
@@ -681,7 +684,7 @@ private struct PlaybackDevicePickerView: View {
             )
 
             modeSegment(
-                title: "Multi",
+                title: languageStore.localizedString("Multi"),
                 isSelected: item.outputRouteIntent.isMulti,
                 action: {
                     onSelectRoute(multiRouteAfterEnteringMulti())
@@ -693,7 +696,7 @@ private struct PlaybackDevicePickerView: View {
     }
 
     private func modeSegment(
-        title: LocalizedStringKey,
+        title: String,
         isSelected: Bool,
         action: @escaping () -> Void
     ) -> some View {

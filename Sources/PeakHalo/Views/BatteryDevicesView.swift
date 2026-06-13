@@ -3,6 +3,7 @@ import SwiftUI
 struct BatteryDevicesView: View {
     let compact: Bool
     @ObservedObject private var store = BatteryDeviceStore.shared
+    @ObservedObject private var languageStore = AppLanguageStore.shared
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -11,7 +12,7 @@ struct BatteryDevicesView: View {
                 deviceList
 
                 if let message = store.lastMessage {
-                    Text(message)
+                    Text(languageStore.localizedString(message))
                         .font(.caption2)
                         .foregroundStyle(secondaryColor)
                         .lineLimit(2)
@@ -34,7 +35,7 @@ struct BatteryDevicesView: View {
     @ViewBuilder
     private var deviceList: some View {
         if store.devices.isEmpty {
-            Text(store.isRefreshing ? "Scanning Batteries" : "No battery devices found.")
+            Text(languageStore.localizedString(store.isRefreshing ? "Scanning Batteries" : "No battery devices found."))
                 .font(compact ? .caption : .callout)
                 .foregroundStyle(secondaryColor)
                 .frame(maxWidth: .infinity, minHeight: compact ? 64 : 110, alignment: .center)
@@ -96,19 +97,20 @@ struct BatteryDevicesView: View {
         .contentShape(Rectangle())
         .help(Text(device.name))
         .contextMenu {
-            Button("Refresh Batteries") {
+            Button(languageStore.localizedString("Refresh Batteries")) {
                 store.refresh()
             }
         }
     }
 
     private func subtitle(for device: BatteryDevice) -> String {
-        var parts = [device.kind.title]
+        let kindTitle = languageStore.localizedString(device.kind.titleKey)
+        var parts = [kindTitle]
 
-        if let detail = device.detail, !detail.isEmpty, detail != device.kind.title {
+        if let detail = device.detail, !detail.isEmpty, detail != kindTitle {
             parts.append(detail)
         } else if device.clampedLevel == nil {
-            parts.append(String(localized: "Battery unavailable"))
+            parts.append(languageStore.localizedString("Battery unavailable"))
         }
 
         return parts.joined(separator: " - ")

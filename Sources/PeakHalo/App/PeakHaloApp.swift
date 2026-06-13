@@ -21,11 +21,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard SingleInstanceLock.shared.acquireReplacingOtherInstances() else {
+            NSApp.terminate(nil)
+            return
+        }
+
         NSApp.setActivationPolicy(.regular)
 
         SystemMetricsService.shared.start()
         NotchWindowManager.shared.show(metricsService: SystemMetricsService.shared)
         MenuBarStatusItemController.shared.start()
+        SparkleUpdateService.shared.start()
         presentInitialSettingsWindowIfNeeded()
 
         Task { @MainActor in
@@ -39,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotchWindowManager.shared.hide()
         AudioControlStore.shared.shutdown()
         SystemMetricsService.shared.stop()
+        SingleInstanceLock.shared.release()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

@@ -19,8 +19,7 @@ let package = Package(
         .executableTarget(
             name: "PeakHalo",
             dependencies: [
-                .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
-                .product(name: "Sparkle", package: "Sparkle")
+                .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts")
             ],
             path: "Sources/PeakHalo",
             resources: [

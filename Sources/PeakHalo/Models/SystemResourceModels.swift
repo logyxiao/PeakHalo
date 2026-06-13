@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-struct CPUUsageBreakdown: Equatable {
+struct CPUUsageBreakdown: Equatable, Sendable {
     let total: Double
     let user: Double
     let system: Double
@@ -9,14 +9,14 @@ struct CPUUsageBreakdown: Equatable {
     let idle: Double
 }
 
-struct CPUTicks: Equatable {
+struct CPUTicks: Equatable, Sendable {
     let user: UInt64
     let system: UInt64
     let idle: UInt64
     let nice: UInt64
 }
 
-struct GPUMetrics: Equatable {
+struct GPUMetrics: Equatable, Sendable {
     let usage: Double?
     let renderUsage: Double?
     let tilerUsage: Double?
@@ -34,7 +34,7 @@ struct GPUMetrics: Equatable {
     )
 }
 
-struct MemoryStats: Equatable {
+struct MemoryStats: Equatable, Sendable {
     let usedBytes: UInt64
     let appBytes: UInt64
     let wiredBytes: UInt64
@@ -49,7 +49,7 @@ struct MemoryStats: Equatable {
     }
 }
 
-struct MemoryPageCounts: Equatable {
+struct MemoryPageCounts: Equatable, Sendable {
     let internalPages: UInt64
     let purgeablePages: UInt64
     let wiredPages: UInt64
@@ -58,20 +58,20 @@ struct MemoryPageCounts: Equatable {
     let speculativePages: UInt64
 }
 
-struct NetworkStats: Equatable {
+struct NetworkStats: Equatable, Sendable {
     let downloadBytesPerSecond: UInt64?
     let uploadBytesPerSecond: UInt64?
     let receivedBytes: UInt64
     let sentBytes: UInt64
 }
 
-struct NetworkCounters: Equatable {
+struct NetworkCounters: Equatable, Sendable {
     let receivedBytes: UInt64
     let sentBytes: UInt64
     let timestamp: Date
 }
 
-struct StorageStats: Equatable {
+struct StorageStats: Equatable, Sendable {
     let usedBytes: UInt64
     let freeBytes: UInt64
     let totalBytes: UInt64
@@ -83,7 +83,7 @@ struct StorageStats: Equatable {
     }
 }
 
-struct StorageVolumeStats: Equatable, Identifiable {
+struct StorageVolumeStats: Equatable, Identifiable, Sendable {
     let id: String
     let name: String
     let usedBytes: UInt64
@@ -96,7 +96,7 @@ struct StorageVolumeStats: Equatable, Identifiable {
     }
 }
 
-struct BatteryStats: Equatable {
+struct BatteryStats: Equatable, Sendable {
     let level: Double?
     let isCharging: Bool?
     let isPluggedIn: Bool?
@@ -116,7 +116,7 @@ struct BatteryStats: Equatable {
     }
 }
 
-enum HardwareSensorSource: String, Equatable {
+enum HardwareSensorSource: String, Equatable, Sendable {
     case helper
     case app
     case unavailable
@@ -133,7 +133,7 @@ enum HardwareSensorSource: String, Equatable {
     }
 }
 
-struct HardwareSensors: Equatable {
+struct HardwareSensors: Equatable, Sendable {
     let cpuTemperatureCelsius: Double?
     let fanSpeedRPM: Double?
     let source: HardwareSensorSource
@@ -149,7 +149,7 @@ struct HardwareSensors: Equatable {
     )
 }
 
-struct SystemResourceStats: Equatable {
+struct SystemResourceStats: Equatable, Sendable {
     var cpu: CPUUsageBreakdown?
     var gpu: GPUMetrics
     var memory: MemoryStats
@@ -208,5 +208,5 @@ struct ProcessResourceItem: Identifiable {
 
 struct AppKillResult: Equatable {
     let success: Bool
-    let message: String
+    let message: LocalizedMessage
 }

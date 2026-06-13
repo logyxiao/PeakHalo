@@ -3,8 +3,10 @@ import SwiftUI
 
 struct DashboardMetricsSection: View {
     @ObservedObject var metricsService: SystemMetricsService
+    @ObservedObject private var languageStore = AppLanguageStore.shared
     @State private var selectedResource: ResourceMonitorKind = .cpu
     @State private var forceQuitItem: ProcessResourceItem?
+    @State private var strings = LocalizedMetricsStrings.cached(for: AppLanguageStore.shared.language)
 
     private var snapshot: SystemMetricsSnapshot {
         metricsService.snapshot
@@ -26,6 +28,7 @@ struct DashboardMetricsSection: View {
                     } label: {
                         DashboardResourceCard(
                             resource: resource,
+                            title: strings.resourceTitle(resource),
                             value: value(for: resource),
                             caption: caption(for: resource),
                             history: history(for: resource),
@@ -42,29 +45,55 @@ struct DashboardMetricsSection: View {
                 items: processItems(for: selectedResource),
                 valueTitle: processValueTitle(for: selectedResource),
                 value: processValueFormatter(for: selectedResource),
+                strings: strings,
                 onTerminate: { metricsService.terminate($0, force: false) },
                 onForceTerminate: { forceQuitItem = $0 }
             )
 
             if let result = metricsService.lastKillResult {
-                Label(result.message, systemImage: result.success ? "checkmark.circle" : "exclamationmark.triangle")
+                Label(
+                    result.message.resolved(language: strings.language),
+                    systemImage: result.success ? "checkmark.circle" : "exclamationmark.triangle"
+                )
                     .font(.callout)
                     .foregroundStyle(result.success ? .green : .orange)
             }
         }
         .confirmationDialog(
-            "Force Quit App",
+            Text(strings.text("Force Quit App")),
             isPresented: forceQuitDialogBinding,
             titleVisibility: .visible,
             presenting: forceQuitItem
         ) { item in
-            Button("Force Quit", role: .destructive) {
+            Button(strings.text("Force Quit"), role: .destructive) {
                 metricsService.terminate(item, force: true)
             }
-            Button("Cancel", role: .cancel) {}
+            Button(strings.text("Cancel"), role: .cancel) {}
         } message: { item in
-            Text(String(format: String(localized: "Force quitting %@ may lose unsaved work."), item.name))
+            Text(strings.formatted(
+                "Force quitting %@ may lose unsaved work.",
+                arguments: [item.name]
+            ))
         }
+        .onAppear {
+            syncProcessSamplingInterest()
+        }
+        .onChange(of: selectedResource) { _, _ in
+            syncProcessSamplingInterest()
+        }
+        .onChange(of: languageStore.language) { _, language in
+            strings = LocalizedMetricsStrings.cached(for: language)
+        }
+        .onDisappear {
+            metricsService.setProcessSamplingResource(nil, for: .dashboard)
+        }
+    }
+
+    private func syncProcessSamplingInterest() {
+        metricsService.setProcessSamplingResource(
+            selectedResource.supportsAppList ? selectedResource : nil,
+            for: .dashboard
+        )
     }
 
     private func value(for resource: ResourceMonitorKind) -> String {
@@ -87,7 +116,7 @@ struct DashboardMetricsSection: View {
     private func caption(for resource: ResourceMonitorKind) -> String {
         switch resource {
         case .cpu:
-            guard let cpu = snapshot.stats.cpu else { return String(localized: "Waiting for next sample") }
+            guard let cpu = snapshot.stats.cpu else { return strings.text("Waiting for next sample") }
             return "User \(MetricFormat.percent(cpu.user)) · System \(MetricFormat.percent(cpu.system))"
         case .gpu:
             return "Render \(MetricFormat.percent(snapshot.stats.gpu.renderUsage)) · VRAM \(MetricFormat.bytes(snapshot.stats.gpu.usedMemoryBytes))"
@@ -96,10 +125,7 @@ struct DashboardMetricsSection: View {
         case .network:
             return "↑ \(MetricFormat.rate(snapshot.stats.network.uploadBytesPerSecond))"
         case .storage:
-            return String(
-                format: String(localized: "%@ free"),
-                MetricFormat.bytes(snapshot.stats.storage?.freeBytes)
-            )
+            return strings.formatted("%@ free", arguments: [MetricFormat.bytes(snapshot.stats.storage?.freeBytes)])
         case .battery:
             return batteryStateText
         }
@@ -122,47 +148,47 @@ struct DashboardMetricsSection: View {
         }
     }
 
-    private func details(for resource: ResourceMonitorKind) -> [(LocalizedStringKey, String)] {
+    private func details(for resource: ResourceMonitorKind) -> [(String, String)] {
         switch resource {
         case .cpu:
             return [
-                ("User", MetricFormat.percent(snapshot.stats.cpu?.user)),
-                ("System", MetricFormat.percent(snapshot.stats.cpu?.system)),
-                ("Idle", MetricFormat.percent(snapshot.stats.cpu?.idle))
+                (strings.text("User"), MetricFormat.percent(snapshot.stats.cpu?.user)),
+                (strings.text("System"), MetricFormat.percent(snapshot.stats.cpu?.system)),
+                (strings.text("Idle"), MetricFormat.percent(snapshot.stats.cpu?.idle))
             ]
         case .gpu:
             return [
-                ("Render", MetricFormat.percent(snapshot.stats.gpu.renderUsage)),
-                ("Tiler", MetricFormat.percent(snapshot.stats.gpu.tilerUsage)),
-                ("VRAM", MetricFormat.bytes(snapshot.stats.gpu.usedMemoryBytes)),
-                ("Model", snapshot.stats.gpu.deviceName ?? "--")
+                (strings.text("Render"), MetricFormat.percent(snapshot.stats.gpu.renderUsage)),
+                (strings.text("Tiler"), MetricFormat.percent(snapshot.stats.gpu.tilerUsage)),
+                (strings.text("VRAM"), MetricFormat.bytes(snapshot.stats.gpu.usedMemoryBytes)),
+                (strings.text("Model"), snapshot.stats.gpu.deviceName ?? "--")
             ]
         case .memory:
             return [
-                ("App", MetricFormat.bytes(snapshot.stats.memory.appBytes)),
-                ("Wired", MetricFormat.bytes(snapshot.stats.memory.wiredBytes)),
-                ("Cached", MetricFormat.bytes(snapshot.stats.memory.cachedBytes))
+                (strings.text("App"), MetricFormat.bytes(snapshot.stats.memory.appBytes)),
+                (strings.text("Wired"), MetricFormat.bytes(snapshot.stats.memory.wiredBytes)),
+                (strings.text("Cached"), MetricFormat.bytes(snapshot.stats.memory.cachedBytes))
             ]
         case .network:
             return [
-                ("Download", MetricFormat.rate(snapshot.stats.network.downloadBytesPerSecond)),
-                ("Upload", MetricFormat.rate(snapshot.stats.network.uploadBytesPerSecond)),
-                ("Received", MetricFormat.bytes(snapshot.stats.network.receivedBytes)),
-                ("Sent", MetricFormat.bytes(snapshot.stats.network.sentBytes))
+                (strings.text("Download"), MetricFormat.rate(snapshot.stats.network.downloadBytesPerSecond)),
+                (strings.text("Upload"), MetricFormat.rate(snapshot.stats.network.uploadBytesPerSecond)),
+                (strings.text("Received"), MetricFormat.bytes(snapshot.stats.network.receivedBytes)),
+                (strings.text("Sent"), MetricFormat.bytes(snapshot.stats.network.sentBytes))
             ]
         case .storage:
             return [
-                ("Used", MetricFormat.bytes(snapshot.stats.storage?.usedBytes)),
-                ("Free", MetricFormat.bytes(snapshot.stats.storage?.freeBytes)),
-                ("Total", MetricFormat.bytes(snapshot.stats.storage?.totalBytes))
+                (strings.text("Used"), MetricFormat.bytes(snapshot.stats.storage?.usedBytes)),
+                (strings.text("Free"), MetricFormat.bytes(snapshot.stats.storage?.freeBytes)),
+                (strings.text("Total"), MetricFormat.bytes(snapshot.stats.storage?.totalBytes))
             ]
         case .battery:
             return [
-                ("State", batteryStateText),
-                ("Cycles", snapshot.stats.battery?.cycleCount.map(String.init) ?? "--"),
-                ("Health", snapshot.stats.battery?.health ?? "--"),
-                ("Temperature", MetricFormat.temperature(snapshot.stats.battery?.temperatureCelsius)),
-                ("Power", MetricFormat.power(snapshot.stats.battery?.powerWatts))
+                (strings.text("State"), batteryStateText),
+                (strings.text("Cycles"), snapshot.stats.battery?.cycleCount.map(String.init) ?? "--"),
+                (strings.text("Health"), snapshot.stats.battery?.health ?? "--"),
+                (strings.text("Temperature"), MetricFormat.temperature(snapshot.stats.battery?.temperatureCelsius)),
+                (strings.text("Power"), MetricFormat.power(snapshot.stats.battery?.powerWatts))
             ]
         }
     }
@@ -178,14 +204,14 @@ struct DashboardMetricsSection: View {
         }
     }
 
-    private func processValueTitle(for resource: ResourceMonitorKind) -> LocalizedStringKey {
+    private func processValueTitle(for resource: ResourceMonitorKind) -> String {
         switch resource {
         case .cpu:
-            "CPU"
+            strings.resourceTitle(.cpu)
         case .memory:
-            "Memory"
+            strings.resourceTitle(.memory)
         case .gpu, .network, .storage, .battery:
-            "Apps"
+            strings.text("Apps")
         }
     }
 
@@ -203,12 +229,12 @@ struct DashboardMetricsSection: View {
     private var batteryStateText: String {
         guard let battery = snapshot.stats.battery else { return "--" }
         if battery.isCharging == true {
-            return String(localized: "Charging")
+            return strings.text("Charging")
         }
         if battery.isPluggedIn == true {
-            return String(localized: "Plugged In")
+            return strings.text("Plugged In")
         }
-        return String(localized: "On Battery")
+        return strings.text("On Battery")
     }
 
     private var forceQuitDialogBinding: Binding<Bool> {
@@ -225,6 +251,7 @@ struct DashboardMetricsSection: View {
 
 private struct DashboardResourceCard: View {
     let resource: ResourceMonitorKind
+    let title: String
     let value: String
     let caption: String
     let history: [Double]
@@ -235,7 +262,7 @@ private struct DashboardResourceCard: View {
             HStack {
                 Image(systemName: resource.symbol)
                     .foregroundStyle(resource.tint)
-                Text(resource.title)
+                Text(title)
                     .font(.headline)
                 Spacer()
                 Image(systemName: isSelected ? "chevron.down.circle.fill" : "chevron.right.circle")
@@ -276,17 +303,18 @@ private struct DashboardResourceCard: View {
 
 private struct DashboardResourceExpansion: View {
     let resource: ResourceMonitorKind
-    let details: [(LocalizedStringKey, String)]
+    let details: [(String, String)]
     let items: [ProcessResourceItem]
-    let valueTitle: LocalizedStringKey
+    let valueTitle: String
     let value: (ProcessResourceItem) -> String
+    let strings: LocalizedMetricsStrings
     let onTerminate: (ProcessResourceItem) -> Void
     let onForceTerminate: (ProcessResourceItem) -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 10) {
-                Label(resource.title, systemImage: resource.symbol)
+                Label(strings.resourceTitle(resource), systemImage: resource.symbol)
                     .font(.headline)
                     .foregroundStyle(resource.tint)
 
@@ -309,7 +337,7 @@ private struct DashboardResourceExpansion: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("App Usage")
+                    Text(strings.text("App Usage"))
                         .font(.headline)
                     Spacer()
                     Text(valueTitle)
@@ -319,7 +347,7 @@ private struct DashboardResourceExpansion: View {
 
                 if resource.supportsAppList {
                     if items.isEmpty {
-                        Text("No app samples yet")
+                        Text(strings.text("No app samples yet"))
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
@@ -329,6 +357,7 @@ private struct DashboardResourceExpansion: View {
                                 DashboardProcessRow(
                                     item: item,
                                     value: value(item),
+                                    strings: strings,
                                     onTerminate: { onTerminate(item) },
                                     onForceTerminate: { onForceTerminate(item) }
                                 )
@@ -336,7 +365,7 @@ private struct DashboardResourceExpansion: View {
                         }
                     }
                 } else {
-                    Text("App-level usage is not available for this resource.")
+                    Text(strings.text("App-level usage is not available for this resource."))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
@@ -352,6 +381,7 @@ private struct DashboardResourceExpansion: View {
 private struct DashboardProcessRow: View {
     let item: ProcessResourceItem
     let value: String
+    let strings: LocalizedMetricsStrings
     let onTerminate: () -> Void
     let onForceTerminate: () -> Void
 
@@ -363,7 +393,9 @@ private struct DashboardProcessRow: View {
                 Text(item.name)
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
-                Text(item.processCount > 1 ? String(format: String(localized: "%d processes"), item.processCount) : "PID \(item.pid)")
+                Text(item.processCount > 1
+                    ? strings.formatted("%d processes", arguments: [item.processCount])
+                    : "PID \(item.pid)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -380,7 +412,7 @@ private struct DashboardProcessRow: View {
                     symbol: "xmark.circle",
                     color: item.canTerminate ? .secondary : .secondary.opacity(0.35),
                     isEnabled: item.canTerminate,
-                    help: "Quit",
+                    help: strings.text("Quit"),
                     action: onTerminate
                 )
 
@@ -388,7 +420,7 @@ private struct DashboardProcessRow: View {
                     symbol: "exclamationmark.octagon",
                     color: item.canTerminate ? .red : .secondary.opacity(0.35),
                     isEnabled: item.canTerminate,
-                    help: "Force Quit",
+                    help: strings.text("Force Quit"),
                     action: onForceTerminate
                 )
             }
@@ -402,7 +434,7 @@ private struct ProcessActionButton: View {
     let symbol: String
     let color: Color
     let isEnabled: Bool
-    let help: LocalizedStringKey
+    let help: String
     let action: () -> Void
 
     var body: some View {

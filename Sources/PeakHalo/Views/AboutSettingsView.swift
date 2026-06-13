@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AboutSettingsView: View {
     @ObservedObject private var updateStore = AppUpdateStore.shared
+    @ObservedObject private var languageStore = AppLanguageStore.shared
 
     var body: some View {
         Form {
@@ -17,23 +18,20 @@ struct AboutSettingsView: View {
                 }
                 .padding(.vertical, 4)
             } header: {
-                Text("GitHub Updates")
+                Text(languageStore.localizedString("Updates"))
             } footer: {
-                Text("Check GitHub Releases for new installer packages.")
+                Text(languageStore.localizedString("PeakHalo uses Sparkle to download, verify, install, and relaunch updates in-app."))
             }
 
             Section {
                 licenseSummary
             } header: {
-                Text("Open Source Credits")
+                Text(languageStore.localizedString("Open Source Credits"))
             } footer: {
-                Text("Audio controls are adapted from FineTune under GPLv3-compatible terms.")
+                Text(languageStore.localizedString("Audio controls are adapted from FineTune under GPLv3-compatible terms."))
             }
         }
         .formStyle(.grouped)
-        .task {
-            await updateStore.checkForUpdatesIfNeeded()
-        }
     }
 
     private var appSummary: some View {
@@ -42,10 +40,10 @@ struct AboutSettingsView: View {
                 .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                 .padding(.bottom, 4)
 
-            Text("PeakHalo")
+            Text(languageStore.localizedString("PeakHalo"))
                 .font(.title2.weight(.bold))
 
-            Text("A premium notch overlay & control center for macOS.")
+            Text(languageStore.localizedString("A premium notch overlay & control center for macOS."))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -53,11 +51,11 @@ struct AboutSettingsView: View {
 
             HStack(spacing: 8) {
                 versionBadge(
-                    title: "Version",
+                    title: languageStore.localizedString("Version"),
                     value: updateStore.currentVersion
                 )
                 versionBadge(
-                    title: "Build",
+                    title: languageStore.localizedString("Build"),
                     value: updateStore.currentBuild
                 )
             }
@@ -119,7 +117,7 @@ struct AboutSettingsView: View {
         return nil
     }
 
-    private func versionBadge(title: LocalizedStringKey, value: String) -> some View {
+    private func versionBadge(title: String, value: String) -> some View {
         HStack(spacing: 5) {
             Text(title)
                 .foregroundStyle(.secondary)
@@ -134,53 +132,56 @@ struct AboutSettingsView: View {
 
     @ViewBuilder
     private var updateStatus: some View {
-        if updateStore.isChecking {
-            Label("Checking for updates...", systemImage: "arrow.triangle.2.circlepath")
-                .foregroundStyle(.secondary)
-        } else if let errorMessage = updateStore.errorMessage {
-            Label(errorMessage, systemImage: "exclamationmark.triangle")
-                .foregroundStyle(.orange)
-        } else if let latestUpdate = updateStore.latestUpdate {
+        if updateStore.isOnlineUpdateConfigured {
             VStack(alignment: .leading, spacing: 6) {
-                Label(
-                    latestUpdate.isUpdateAvailable ? "Update Available" : "Up to Date",
-                    systemImage: latestUpdate.isUpdateAvailable ? "arrow.down.circle" : "checkmark.circle"
-                )
-                .foregroundStyle(latestUpdate.isUpdateAvailable ? .blue : .green)
+                Label {
+                    Text(languageStore.localizedString("Online updates are enabled."))
+                } icon: {
+                    Image(systemName: "bolt.horizontal.circle")
+                }
+                .foregroundStyle(.green)
 
-                Text(updateDescription(for: latestUpdate))
+                Text(updateStore.feedURLDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-        } else if let statusMessage = updateStore.statusMessage {
-            Text(statusMessage)
-                .foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                Label {
+                    Text(languageStore.localizedString("Online updates are not configured in this build."))
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle")
+                }
+                .foregroundStyle(.orange)
+
+                Text(languageStore.localizedString("Open GitHub Releases to download manually."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
     private var updateActions: some View {
         HStack(spacing: 8) {
             Button {
-                Task {
-                    await updateStore.checkForUpdates()
+                updateStore.checkForUpdates()
+            } label: {
+                Label {
+                    Text(languageStore.localizedString("Check for Updates"))
+                } icon: {
+                    Image(systemName: "arrow.clockwise")
                 }
-            } label: {
-                Label("Check for Updates", systemImage: "arrow.clockwise")
             }
-            .disabled(updateStore.isChecking)
-
-            Button {
-                updateStore.openDownload()
-            } label: {
-                Label("Download Update", systemImage: "arrow.down.circle")
-            }
-            .disabled(updateStore.latestUpdate?.isUpdateAvailable != true)
             .buttonStyle(.borderedProminent)
 
             Button {
                 updateStore.openReleasePage()
             } label: {
-                Label("Open GitHub", systemImage: "arrow.up.right.square")
+                Label {
+                    Text(languageStore.localizedString("Open Releases"))
+                } icon: {
+                    Image(systemName: "arrow.up.right.square")
+                }
             }
         }
         .buttonStyle(.bordered)
@@ -189,7 +190,7 @@ struct AboutSettingsView: View {
 
     private var licenseSummary: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("PeakHalo incorporates GPLv3-compatible audio-control architecture and implementation techniques derived from FineTune.")
+            Text(languageStore.localizedString("PeakHalo incorporates GPLv3-compatible audio-control architecture and implementation techniques derived from FineTune."))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -211,17 +212,6 @@ struct AboutSettingsView: View {
             .controlSize(.small)
         }
         .padding(.vertical, 4)
-    }
-
-    private func updateDescription(for info: AppUpdateInfo) -> String {
-        let base = String.localizedStringWithFormat(
-            String(localized: "Latest version: %@"),
-            info.latestVersion
-        )
-
-        guard let publishedAt = info.publishedAt else { return base }
-
-        return base + " · " + publishedAt.formatted(date: .abbreviated, time: .omitted)
     }
 
     private func openURL(_ string: String) {

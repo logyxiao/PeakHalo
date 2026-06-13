@@ -14,30 +14,42 @@ final class AppKiller {
         ) else {
             return AppKillResult(
                 success: false,
-                message: String(format: String(localized: "%@ is protected and was not closed."), item.name)
+                message: LocalizedMessage(
+                    "%@ is protected and was not closed.",
+                    arguments: [.string(item.name)]
+                )
             )
         }
 
         guard let application = item.application, !application.isTerminated else {
             return AppKillResult(
                 success: false,
-                message: String(format: String(localized: "%@ is no longer running."), item.name)
+                message: LocalizedMessage(
+                    "%@ is no longer running.",
+                    arguments: [.string(item.name)]
+                )
             )
         }
 
         let accepted = force ? application.forceTerminate() : application.terminate()
-        let action = force ? String(localized: "force quit") : String(localized: "quit")
+        let action = LocalizedMessage.string(force ? "force quit" : "quit")
 
         if accepted {
             return AppKillResult(
                 success: true,
-                message: String(format: String(localized: "Sent %@ request to %@."), action, item.name)
+                message: LocalizedMessage(
+                    "Sent %@ request to %@.",
+                    arguments: [.message(action), .string(item.name)]
+                )
             )
         }
 
         return AppKillResult(
             success: false,
-            message: String(format: String(localized: "%@ rejected the %@ request."), item.name, action)
+            message: LocalizedMessage(
+                "%@ rejected the %@ request.",
+                arguments: [.string(item.name), .message(action)]
+            )
         )
     }
 }

@@ -6,6 +6,7 @@ struct NotchMetricsView: View {
     let displayLayout: NotchDisplayLayout
     @ObservedObject var metricsService: SystemMetricsService
     @ObservedObject private var preferences = DisplayPreferencesStore.shared
+    @ObservedObject private var languageStore = AppLanguageStore.shared
 
     @State private var selectedTab: NotchMetricsTab = .monitor
     @State private var expandedResource: ResourceMonitorKind = .cpu
@@ -13,6 +14,7 @@ struct NotchMetricsView: View {
     @State private var mountsExpandedContent = false
     @State private var showsExpandedContent = false
     @State private var contentTransitionTask: Task<Void, Never>?
+    @State private var strings = LocalizedMetricsStrings.cached(for: AppLanguageStore.shared.language)
 
     private var snapshot: SystemMetricsSnapshot {
         metricsService.snapshot
@@ -34,13 +36,25 @@ struct NotchMetricsView: View {
         .clipped()
         .onAppear {
             syncMountedContent(animated: false)
+            syncProcessSamplingInterest()
         }
         .onChange(of: state) { _, _ in
             syncMountedContent(animated: true)
+            syncProcessSamplingInterest()
+        }
+        .onChange(of: selectedTab) { _, _ in
+            syncProcessSamplingInterest()
+        }
+        .onChange(of: expandedResource) { _, _ in
+            syncProcessSamplingInterest()
+        }
+        .onChange(of: languageStore.language) { _, language in
+            strings = LocalizedMetricsStrings.cached(for: language)
         }
         .onDisappear {
             contentTransitionTask?.cancel()
             contentTransitionTask = nil
+            metricsService.setProcessSamplingResource(nil, for: .notch)
         }
     }
 
@@ -119,7 +133,7 @@ struct NotchMetricsView: View {
         HStack(spacing: showIcons ? 8 : 7) {
             ForEach(resources) { resource in
                 CompactMetricBadge(
-                    title: resource.title,
+                    title: strings.resourceTitle(resource),
                     symbol: compactSymbol(for: resource),
                     color: resource.tint,
                     value: value(for: resource),
@@ -134,7 +148,8 @@ struct NotchMetricsView: View {
         VStack(spacing: 10) {
             NotchHeaderTabs(
                 selectedTab: $selectedTab,
-                monitorLayoutStyle: $preferences.monitorLayoutStyle
+                monitorLayoutStyle: $preferences.monitorLayoutStyle,
+                strings: strings
             )
                 .frame(maxWidth: .infinity)
 
@@ -145,17 +160,20 @@ struct NotchMetricsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(12)
         .confirmationDialog(
-            Text("Force Quit App"),
+            Text(strings.text("Force Quit App")),
             isPresented: forceQuitDialogBinding,
             titleVisibility: .visible,
             presenting: forceQuitItem
         ) { item in
-            Button("Force Quit", role: .destructive) {
+            Button(strings.text("Force Quit"), role: .destructive) {
                 metricsService.terminate(item, force: true)
             }
-            Button("Cancel", role: .cancel) {}
+            Button(strings.text("Cancel"), role: .cancel) {}
         } message: { item in
-            Text(String(format: String(localized: "Force quitting %@ may lose unsaved work."), item.name))
+            Text(strings.formatted(
+                "Force quitting %@ may lose unsaved work.",
+                arguments: [item.name]
+            ))
         }
     }
 
@@ -197,6 +215,13 @@ struct NotchMetricsView: View {
                 mountsExpandedContent = false
             }
         }
+    }
+
+    private func syncProcessSamplingInterest() {
+        let resource = state == .open && selectedTab == .monitor && expandedResource.supportsAppList
+            ? expandedResource
+            : nil
+        metricsService.setProcessSamplingResource(resource, for: .notch)
     }
 
     @ViewBuilder
@@ -242,6 +267,7 @@ struct NotchMetricsView: View {
                 valueTitle: processValueTitle(for: expandedResource),
                 value: processValueFormatter(for: expandedResource),
                 isCompact: false,
+                strings: strings,
                 onTerminate: { metricsService.terminate($0, force: false) },
                 onForceTerminate: { forceQuitItem = $0 }
             )
@@ -262,6 +288,7 @@ struct NotchMetricsView: View {
                 valueTitle: processValueTitle(for: expandedResource),
                 value: processValueFormatter(for: expandedResource),
                 isCompact: true,
+                strings: strings,
                 onTerminate: { metricsService.terminate($0, force: false) },
                 onForceTerminate: { forceQuitItem = $0 }
             )
@@ -290,6 +317,7 @@ struct NotchMetricsView: View {
         } label: {
             ResourceMetricCard(
                 resource: resource,
+                title: strings.resourceTitle(resource),
                 value: value(for: resource),
                 caption: caption(for: resource),
                 history: history(for: resource),
@@ -297,7 +325,7 @@ struct NotchMetricsView: View {
             )
         }
         .buttonStyle(.plain)
-        .help(Text(resource.title))
+        .help(Text(strings.resourceTitle(resource)))
     }
 
     private var resourceSummaryList: some View {
@@ -308,13 +336,14 @@ struct NotchMetricsView: View {
                 } label: {
                     CompactResourceStatRow(
                         resource: resource,
+                        title: strings.resourceTitle(resource),
                         value: value(for: resource),
                         caption: caption(for: resource),
                         isSelected: expandedResource == resource
                     )
                 }
                 .buttonStyle(.plain)
-                .help(Text(resource.title))
+                .help(Text(strings.resourceTitle(resource)))
             }
         }
         .padding(8)
@@ -355,7 +384,7 @@ struct NotchMetricsView: View {
             if let cpu = snapshot.stats.cpu {
                 return "User \(MetricFormat.percent(cpu.user)) · System \(MetricFormat.percent(cpu.system))"
             }
-            return String(localized: "Waiting for next sample")
+            return strings.text("Waiting for next sample")
         case .gpu:
             return "Render \(MetricFormat.percent(snapshot.stats.gpu.renderUsage)) · VRAM \(MetricFormat.bytes(snapshot.stats.gpu.usedMemoryBytes))"
         case .memory:
@@ -363,10 +392,7 @@ struct NotchMetricsView: View {
         case .network:
             return "↑ \(MetricFormat.rate(snapshot.stats.network.uploadBytesPerSecond))"
         case .storage:
-            return String(
-                format: String(localized: "%@ free"),
-                MetricFormat.bytes(snapshot.stats.storage?.freeBytes)
-            )
+            return strings.formatted("%@ free", arguments: [MetricFormat.bytes(snapshot.stats.storage?.freeBytes)])
         case .battery:
             return batteryStateText
         }
@@ -389,47 +415,47 @@ struct NotchMetricsView: View {
         }
     }
 
-    private func details(for resource: ResourceMonitorKind) -> [(LocalizedStringKey, String)] {
+    private func details(for resource: ResourceMonitorKind) -> [(String, String)] {
         switch resource {
         case .cpu:
             return [
-                ("User", MetricFormat.percent(snapshot.stats.cpu?.user)),
-                ("System", MetricFormat.percent(snapshot.stats.cpu?.system)),
-                ("Idle", MetricFormat.percent(snapshot.stats.cpu?.idle))
+                (strings.text("User"), MetricFormat.percent(snapshot.stats.cpu?.user)),
+                (strings.text("System"), MetricFormat.percent(snapshot.stats.cpu?.system)),
+                (strings.text("Idle"), MetricFormat.percent(snapshot.stats.cpu?.idle))
             ]
         case .gpu:
             return [
-                ("Render", MetricFormat.percent(snapshot.stats.gpu.renderUsage)),
-                ("Tiler", MetricFormat.percent(snapshot.stats.gpu.tilerUsage)),
-                ("VRAM", MetricFormat.bytes(snapshot.stats.gpu.usedMemoryBytes)),
-                ("Model", snapshot.stats.gpu.deviceName ?? "--")
+                (strings.text("Render"), MetricFormat.percent(snapshot.stats.gpu.renderUsage)),
+                (strings.text("Tiler"), MetricFormat.percent(snapshot.stats.gpu.tilerUsage)),
+                (strings.text("VRAM"), MetricFormat.bytes(snapshot.stats.gpu.usedMemoryBytes)),
+                (strings.text("Model"), snapshot.stats.gpu.deviceName ?? "--")
             ]
         case .memory:
             return [
-                ("App", MetricFormat.bytes(snapshot.stats.memory.appBytes)),
-                ("Wired", MetricFormat.bytes(snapshot.stats.memory.wiredBytes)),
-                ("Cached", MetricFormat.bytes(snapshot.stats.memory.cachedBytes))
+                (strings.text("App"), MetricFormat.bytes(snapshot.stats.memory.appBytes)),
+                (strings.text("Wired"), MetricFormat.bytes(snapshot.stats.memory.wiredBytes)),
+                (strings.text("Cached"), MetricFormat.bytes(snapshot.stats.memory.cachedBytes))
             ]
         case .network:
             return [
-                ("Download", MetricFormat.rate(snapshot.stats.network.downloadBytesPerSecond)),
-                ("Upload", MetricFormat.rate(snapshot.stats.network.uploadBytesPerSecond)),
-                ("Received", MetricFormat.bytes(snapshot.stats.network.receivedBytes)),
-                ("Sent", MetricFormat.bytes(snapshot.stats.network.sentBytes))
+                (strings.text("Download"), MetricFormat.rate(snapshot.stats.network.downloadBytesPerSecond)),
+                (strings.text("Upload"), MetricFormat.rate(snapshot.stats.network.uploadBytesPerSecond)),
+                (strings.text("Received"), MetricFormat.bytes(snapshot.stats.network.receivedBytes)),
+                (strings.text("Sent"), MetricFormat.bytes(snapshot.stats.network.sentBytes))
             ]
         case .storage:
             return [
-                ("Used", MetricFormat.bytes(snapshot.stats.storage?.usedBytes)),
-                ("Free", MetricFormat.bytes(snapshot.stats.storage?.freeBytes)),
-                ("Total", MetricFormat.bytes(snapshot.stats.storage?.totalBytes))
+                (strings.text("Used"), MetricFormat.bytes(snapshot.stats.storage?.usedBytes)),
+                (strings.text("Free"), MetricFormat.bytes(snapshot.stats.storage?.freeBytes)),
+                (strings.text("Total"), MetricFormat.bytes(snapshot.stats.storage?.totalBytes))
             ]
         case .battery:
             return [
-                ("State", batteryStateText),
-                ("Cycles", snapshot.stats.battery?.cycleCount.map(String.init) ?? "--"),
-                ("Health", snapshot.stats.battery?.health ?? "--"),
-                ("Temperature", MetricFormat.temperature(snapshot.stats.battery?.temperatureCelsius)),
-                ("Power", MetricFormat.power(snapshot.stats.battery?.powerWatts))
+                (strings.text("State"), batteryStateText),
+                (strings.text("Cycles"), snapshot.stats.battery?.cycleCount.map(String.init) ?? "--"),
+                (strings.text("Health"), snapshot.stats.battery?.health ?? "--"),
+                (strings.text("Temperature"), MetricFormat.temperature(snapshot.stats.battery?.temperatureCelsius)),
+                (strings.text("Power"), MetricFormat.power(snapshot.stats.battery?.powerWatts))
             ]
         }
     }
@@ -445,14 +471,14 @@ struct NotchMetricsView: View {
         }
     }
 
-    private func processValueTitle(for resource: ResourceMonitorKind) -> LocalizedStringKey {
+    private func processValueTitle(for resource: ResourceMonitorKind) -> String {
         switch resource {
         case .cpu:
-            "CPU"
+            strings.resourceTitle(.cpu)
         case .memory:
-            "Memory"
+            strings.resourceTitle(.memory)
         case .gpu, .network, .storage, .battery:
-            "Apps"
+            strings.text("Apps")
         }
     }
 
@@ -470,12 +496,12 @@ struct NotchMetricsView: View {
     private var batteryStateText: String {
         guard let battery = snapshot.stats.battery else { return "--" }
         if battery.isCharging == true {
-            return String(localized: "Charging")
+            return strings.text("Charging")
         }
         if battery.isPluggedIn == true {
-            return String(localized: "Plugged In")
+            return strings.text("Plugged In")
         }
-        return String(localized: "On Battery")
+        return strings.text("On Battery")
     }
 
     private var forceQuitDialogBinding: Binding<Bool> {
@@ -493,6 +519,7 @@ struct NotchMetricsView: View {
 private struct NotchHeaderTabs: View {
     @Binding var selectedTab: NotchMetricsTab
     @Binding var monitorLayoutStyle: MonitorLayoutStyle
+    let strings: LocalizedMetricsStrings
 
     var body: some View {
         HStack(spacing: 8) {
@@ -511,7 +538,7 @@ private struct NotchHeaderTabs: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    .help(Text(tab.title))
+                    .help(Text(strings.tabTitle(tab)))
                 }
             }
             .padding(3)
@@ -520,7 +547,7 @@ private struct NotchHeaderTabs: View {
             Spacer(minLength: 0)
 
             if selectedTab == .monitor {
-                MonitorLayoutSwitcher(selection: $monitorLayoutStyle)
+                MonitorLayoutSwitcher(selection: $monitorLayoutStyle, strings: strings)
             }
 
             Button {
@@ -533,7 +560,7 @@ private struct NotchHeaderTabs: View {
                     .background(Color.white.opacity(0.09), in: Capsule())
             }
             .buttonStyle(.plain)
-            .help("Settings")
+            .help(strings.text("Settings"))
         }
         .frame(height: 28)
     }
@@ -541,6 +568,7 @@ private struct NotchHeaderTabs: View {
 
 private struct MonitorLayoutSwitcher: View {
     @Binding var selection: MonitorLayoutStyle
+    let strings: LocalizedMetricsStrings
 
     var body: some View {
         HStack(spacing: 3) {
@@ -558,7 +586,7 @@ private struct MonitorLayoutSwitcher: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .help(Text(style.localizedName))
+                .help(Text(strings.layoutTitle(style)))
             }
         }
         .padding(3)
@@ -568,6 +596,7 @@ private struct MonitorLayoutSwitcher: View {
 
 private struct ResourceMetricCard: View {
     let resource: ResourceMonitorKind
+    let title: String
     let value: String
     let caption: String
     let history: [Double]
@@ -579,7 +608,7 @@ private struct ResourceMetricCard: View {
                 Image(systemName: resource.symbol)
                     .font(.caption)
                     .foregroundStyle(resource.tint)
-                Text(resource.title)
+                Text(title)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white.opacity(0.75))
                 Spacer(minLength: 0)
@@ -621,28 +650,29 @@ private struct ResourceMetricCard: View {
 
 private struct ResourceDetailPanel: View {
     let resource: ResourceMonitorKind
-    let details: [(LocalizedStringKey, String)]
+    let details: [(String, String)]
     let history: [Double]
     let items: [ProcessResourceItem]
-    let valueTitle: LocalizedStringKey
+    let valueTitle: String
     let value: (ProcessResourceItem) -> String
     let isCompact: Bool
+    let strings: LocalizedMetricsStrings
     let onTerminate: (ProcessResourceItem) -> Void
     let onForceTerminate: (ProcessResourceItem) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Label(resource.title, systemImage: resource.symbol)
+                Label(strings.resourceTitle(resource), systemImage: resource.symbol)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(resource.tint)
                 Spacer()
                 if resource.supportsAppList {
-                    Label("App Usage", systemImage: "app.badge")
+                    Label(strings.text("App Usage"), systemImage: "app.badge")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.62))
                 } else {
-                    Label("System-level data", systemImage: "info.circle")
+                    Label(strings.text("System-level data"), systemImage: "info.circle")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.62))
                 }
@@ -675,7 +705,7 @@ private struct ResourceDetailPanel: View {
     private var appUsageContent: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Text("App Usage")
+                Text(strings.text("App Usage"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.78))
                 Spacer()
@@ -685,7 +715,7 @@ private struct ResourceDetailPanel: View {
             }
 
             if items.isEmpty {
-                Text("No app samples yet")
+                Text(strings.text("No app samples yet"))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.5))
                     .frame(maxWidth: .infinity, minHeight: isCompact ? 42 : 72, alignment: .center)
@@ -696,6 +726,7 @@ private struct ResourceDetailPanel: View {
                             ProcessRow(
                                 item: item,
                                 value: value(item),
+                                strings: strings,
                                 onTerminate: { onTerminate(item) },
                                 onForceTerminate: { onForceTerminate(item) }
                             )
@@ -721,7 +752,7 @@ private struct ResourceDetailPanel: View {
                     .foregroundStyle(resource.tint.opacity(0.9))
                     .frame(width: 14)
 
-                Text("App-level usage is not available for this resource.")
+                Text(strings.text("App-level usage is not available for this resource."))
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.white.opacity(0.52))
                     .fixedSize(horizontal: false, vertical: true)
@@ -736,7 +767,7 @@ private struct ResourceDetailPanel: View {
 }
 
 private struct ResourceDetailChip: View {
-    let title: LocalizedStringKey
+    let title: String
     let value: String
 
     var body: some View {
@@ -762,6 +793,7 @@ private struct ResourceDetailChip: View {
 
 private struct CompactResourceStatRow: View {
     let resource: ResourceMonitorKind
+    let title: String
     let value: String
     let caption: String
     let isSelected: Bool
@@ -778,7 +810,7 @@ private struct CompactResourceStatRow: View {
             .frame(width: 25, height: 25)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(resource.title)
+                Text(title)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.86))
                     .lineLimit(1)
@@ -813,7 +845,7 @@ private struct CompactResourceStatRow: View {
 }
 
 private struct CompactMetricBadge: View {
-    let title: LocalizedStringKey
+    let title: String
     let symbol: String
     let color: Color
     let value: String
@@ -865,6 +897,7 @@ private struct CollapsedMonitorPlaceholder: View {
 private struct ProcessRow: View {
     let item: ProcessResourceItem
     let value: String
+    let strings: LocalizedMetricsStrings
     let onTerminate: () -> Void
     let onForceTerminate: () -> Void
 
@@ -878,7 +911,9 @@ private struct ProcessRow: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
-                Text(item.processCount > 1 ? String(format: String(localized: "%d processes"), item.processCount) : "PID \(item.pid)")
+                Text(item.processCount > 1
+                    ? strings.formatted("%d processes", arguments: [item.processCount])
+                    : "PID \(item.pid)")
                     .font(.system(size: 8.5))
                     .foregroundStyle(.white.opacity(0.45))
             }
@@ -896,7 +931,7 @@ private struct ProcessRow: View {
                     symbol: "xmark.circle",
                     color: .white.opacity(item.canTerminate ? 0.78 : 0.26),
                     isEnabled: item.canTerminate,
-                    help: "Quit",
+                    help: strings.text("Quit"),
                     action: onTerminate
                 )
 
@@ -904,7 +939,7 @@ private struct ProcessRow: View {
                     symbol: "exclamationmark.octagon",
                     color: item.canTerminate ? .red.opacity(0.86) : .white.opacity(0.24),
                     isEnabled: item.canTerminate,
-                    help: "Force Quit",
+                    help: strings.text("Force Quit"),
                     action: onForceTerminate
                 )
             }
@@ -920,7 +955,7 @@ private struct ProcessActionButton: View {
     let symbol: String
     let color: Color
     let isEnabled: Bool
-    let help: LocalizedStringKey
+    let help: String
     let action: () -> Void
 
     var body: some View {

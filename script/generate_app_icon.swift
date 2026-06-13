@@ -55,17 +55,17 @@ func drawIcon(size pixelSize: Int) throws -> NSBitmapImageRep {
 
     NSGraphicsContext.saveGraphicsState()
     let shadow = NSShadow()
-    shadow.shadowColor = NSColor.black.withAlphaComponent(0.14)
+    shadow.shadowColor = NSColor.black.withAlphaComponent(0.30)
     shadow.shadowBlurRadius = max(6, size * 0.055)
     shadow.shadowOffset = NSSize(width: 0, height: -size * 0.018)
     shadow.set()
-    NSColor(calibratedWhite: 1, alpha: 1).setFill()
+    NSColor(calibratedRed: 0.035, green: 0.052, blue: 0.073, alpha: 1).setFill()
     cardPath.fill()
     NSGraphicsContext.restoreGraphicsState()
 
     NSGradient(colors: [
-        NSColor(calibratedRed: 0.995, green: 1.0, blue: 0.985, alpha: 1),
-        NSColor(calibratedRed: 0.94, green: 0.985, blue: 0.97, alpha: 1)
+        NSColor(calibratedRed: 0.080, green: 0.125, blue: 0.165, alpha: 1),
+        NSColor(calibratedRed: 0.020, green: 0.032, blue: 0.050, alpha: 1)
     ])?.draw(in: cardPath, angle: 315)
 
     NSGraphicsContext.saveGraphicsState()
@@ -78,16 +78,16 @@ func drawIcon(size pixelSize: Int) throws -> NSBitmapImageRep {
         height: size * 0.48
     )
     NSGradient(colors: [
-        NSColor(calibratedRed: 0.28, green: 0.86, blue: 0.80, alpha: 0.18),
+        NSColor(calibratedRed: 0.12, green: 0.72, blue: 0.82, alpha: 0.22),
         NSColor.clear
     ])?.draw(in: NSBezierPath(ovalIn: washRect), relativeCenterPosition: NSPoint(x: -0.2, y: 0.1))
 
     NSGraphicsContext.restoreGraphicsState()
 
-    let primaryMint = NSColor(calibratedRed: 0.29, green: 0.78, blue: 0.73, alpha: 1)
-    let brightMint = NSColor(calibratedRed: 0.58, green: 0.92, blue: 0.86, alpha: 1)
-    let accentMint = NSColor(calibratedRed: 0.18, green: 0.66, blue: 0.63, alpha: 1)
-    let deepMint = NSColor(calibratedRed: 0.08, green: 0.50, blue: 0.49, alpha: 1)
+    let primaryMint = NSColor(calibratedRed: 0.18, green: 0.78, blue: 0.76, alpha: 1)
+    let brightMint = NSColor(calibratedRed: 0.58, green: 0.98, blue: 0.92, alpha: 1)
+    let accentMint = NSColor(calibratedRed: 0.25, green: 0.66, blue: 0.78, alpha: 1)
+    let deepMint = NSColor(calibratedRed: 0.73, green: 1.0, blue: 0.94, alpha: 1)
 
     let center = NSPoint(x: size * 0.50, y: size * 0.49)
     let radius = size * 0.235
@@ -154,7 +154,7 @@ func drawIcon(size pixelSize: Int) throws -> NSBitmapImageRep {
 
     let borderPath = NSBezierPath(roundedRect: cardRect.insetBy(dx: size * 0.006, dy: size * 0.006), xRadius: cornerRadius * 0.96, yRadius: cornerRadius * 0.96)
     borderPath.lineWidth = max(1, size * 0.006)
-    accentMint.withAlphaComponent(0.12).setStroke()
+    brightMint.withAlphaComponent(0.20).setStroke()
     borderPath.stroke()
 
     return bitmap

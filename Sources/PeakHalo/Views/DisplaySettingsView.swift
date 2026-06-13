@@ -4,27 +4,28 @@ struct DisplaySettingsView: View {
     @ObservedObject private var preferences = DisplayPreferencesStore.shared
     @ObservedObject private var displayService = DisplayService.shared
     @ObservedObject private var languageStore = AppLanguageStore.shared
+    @State private var selectedLanguage = AppLanguageStore.shared.language
 
     var body: some View {
         Form {
             Section {
-                Picker("Language", selection: $languageStore.language) {
-                    ForEach(AppLanguage.allCases) { language in
-                        Text(language.localizedName)
-                            .tag(language)
-                    }
-                }
-                .pickerStyle(.menu)
+                languageMenu
             } header: {
-                Text("Language")
+                Text(languageStore.localizedString("Language"))
             } footer: {
-                Text("Choose the language used by PeakHalo.")
+                Text(languageStore.localizedString("Choose the language used by PeakHalo."))
             }
 
             Section {
-                Toggle("Show on all displays", isOn: $preferences.showOnAllDisplays)
+                Toggle(
+                    languageStore.localizedString("Show on all displays"),
+                    isOn: $preferences.showOnAllDisplays
+                )
 
-                Picker("Show on a specific display", selection: $preferences.selectedDisplayID) {
+                Picker(
+                    languageStore.localizedString("Show on a specific display"),
+                    selection: $preferences.selectedDisplayID
+                ) {
                     ForEach(displayService.displays) { display in
                         Text(display.displayName)
                             .tag(Optional(display.id))
@@ -38,35 +39,35 @@ struct DisplaySettingsView: View {
                     ensureValidDisplaySelection()
                 }
             } header: {
-                Text("Display Placement")
+                Text(languageStore.localizedString("Display Placement"))
             } footer: {
-                Text("Choose where PeakHalo appears.")
+                Text(languageStore.localizedString("Choose where PeakHalo appears."))
             }
 
             Section {
-                Picker("Main screen style", selection: $preferences.appearanceStyle) {
+                Picker(languageStore.localizedString("Main screen style"), selection: $preferences.appearanceStyle) {
                     ForEach(NotchAppearanceStyle.allCases) { style in
-                        Text(style.localizedName)
+                        Text(languageStore.localizedString(style.localizedNameKey))
                             .tag(style)
                     }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
             } header: {
-                Text("Display Style")
+                Text(languageStore.localizedString("Display Style"))
             } footer: {
-                Text(preferences.appearanceStyle.localizedDescription)
+                Text(languageStore.localizedString(preferences.appearanceStyle.localizedDescriptionKey))
             }
 
             Section {
                 Toggle(
-                    "Hide PeakHalo during screenshots and recordings",
+                    languageStore.localizedString("Hide PeakHalo during screenshots and recordings"),
                     isOn: $preferences.hideFromScreenCapture
                 )
             } header: {
-                Text("Screen Capture")
+                Text(languageStore.localizedString("Screen Capture"))
             } footer: {
-                Text("Control whether PeakHalo is visible in screenshots and recordings.")
+                Text(languageStore.localizedString("Control whether PeakHalo is visible in screenshots and recordings."))
             }
 
             Section {
@@ -84,27 +85,77 @@ struct DisplaySettingsView: View {
                 }
                 .padding(.vertical, 4)
             } header: {
-                Text("Collapsed Monitors")
+                Text(languageStore.localizedString("Collapsed Monitors"))
             } footer: {
-                Text("Choose which monitors appear while the notch or island is collapsed.")
+                Text(languageStore.localizedString("Choose which monitors appear while the notch or island is collapsed."))
             }
 
             Section {
-                Picker("Open control panel with", selection: $preferences.panelActivationMode) {
+                Picker(
+                    languageStore.localizedString("Open control panel with"),
+                    selection: $preferences.panelActivationMode
+                ) {
                     ForEach(PanelActivationMode.allCases) { mode in
-                        Text(mode.localizedName)
+                        Text(languageStore.localizedString(mode.localizedNameKey))
                             .tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
             } header: {
-                Text("Panel Opening")
+                Text(languageStore.localizedString("Panel Opening"))
             } footer: {
-                Text(preferences.panelActivationMode.localizedDescription)
+                Text(languageStore.localizedString(preferences.panelActivationMode.localizedDescriptionKey))
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            selectedLanguage = languageStore.language
+        }
+        .onChange(of: languageStore.language) { _, language in
+            selectedLanguage = language
+        }
+    }
+
+    private var languageMenu: some View {
+        HStack(spacing: 8) {
+            ForEach(AppLanguage.allCases) { language in
+                Button {
+                    selectLanguage(language)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: selectedLanguage == language ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(selectedLanguage == language ? Color.accentColor : .secondary)
+                        Text(languageTitle(language))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(languageOptionBackground(isSelected: selectedLanguage == language))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func languageTitle(_ language: AppLanguage) -> String {
+        AppLocalization.localizedString(language.localizationKey, language: selectedLanguage)
+    }
+
+    private func selectLanguage(_ language: AppLanguage) {
+        selectedLanguage = language
+        languageStore.setLanguage(language)
+    }
+
+    private func languageOptionBackground(isSelected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 7)
+            .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.08))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(isSelected ? Color.accentColor.opacity(0.7) : Color.secondary.opacity(0.18), lineWidth: 1)
+            )
     }
 
     private func collapsedMonitorToggle(_ resource: ResourceMonitorKind) -> some View {
@@ -115,7 +166,7 @@ struct DisplaySettingsView: View {
             )
         ) {
             Label {
-                Text(resource.title)
+                Text(languageStore.localizedString(resource.titleKey))
             } icon: {
                 Image(systemName: resource.symbol)
                     .foregroundStyle(resource.tint)

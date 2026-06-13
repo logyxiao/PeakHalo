@@ -5,13 +5,6 @@ import Foundation
 final class AppUpdateStore: ObservableObject {
     static let shared = AppUpdateStore()
 
-    @Published private(set) var isChecking = false
-    @Published private(set) var latestUpdate: AppUpdateInfo?
-    @Published private(set) var statusMessage: String?
-    @Published private(set) var errorMessage: String?
-
-    private var hasChecked = false
-
     private init() {}
 
     var currentVersion: String {
@@ -22,47 +15,20 @@ final class AppUpdateStore: ObservableObject {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "dev"
     }
 
-    func checkForUpdatesIfNeeded() async {
-        guard !hasChecked else { return }
-        await checkForUpdates()
+    var isOnlineUpdateConfigured: Bool {
+        SparkleUpdateService.shared.isConfigured
     }
 
-    func checkForUpdates() async {
-        guard !isChecking else { return }
-
-        isChecking = true
-        hasChecked = true
-        errorMessage = nil
-        statusMessage = String(localized: "Checking for updates...")
-
-        do {
-            let info = try await AppUpdateService.checkForUpdates(currentVersion: currentVersion)
-            latestUpdate = info
-            statusMessage = info.isUpdateAvailable
-                ? String.localizedStringWithFormat(
-                    String(localized: "Version %@ is available."),
-                    info.latestVersion
-                )
-                : String(localized: "PeakHalo is up to date.")
-        } catch {
-            latestUpdate = nil
-            statusMessage = nil
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-        }
-
-        isChecking = false
+    var feedURLDescription: String {
+        SparkleUpdateService.shared.feedURL?.absoluteString
+            ?? String(localized: "No online update feed is configured for this build.")
     }
 
-    func openDownload() {
-        if let assetURL = latestUpdate?.assetURL {
-            NSWorkspace.shared.open(assetURL)
-            return
-        }
-
-        openReleasePage()
+    func checkForUpdates() {
+        SparkleUpdateService.shared.checkForUpdates()
     }
 
     func openReleasePage() {
-        NSWorkspace.shared.open(latestUpdate?.releaseURL ?? AppUpdateService.repositoryURL)
+        NSWorkspace.shared.open(AppUpdateService.repositoryURL.appending(path: "releases"))
     }
 }

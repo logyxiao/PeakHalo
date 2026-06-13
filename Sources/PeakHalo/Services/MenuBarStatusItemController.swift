@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 @MainActor
 final class MenuBarStatusItemController: NSObject {
@@ -7,26 +8,36 @@ final class MenuBarStatusItemController: NSObject {
     private let preferences = DisplayPreferencesStore.shared
     private let languageStore = AppLanguageStore.shared
     private var statusItem: NSStatusItem?
+    private var cancellables = Set<AnyCancellable>()
+    private static let statusItemLength: CGFloat = 28
+    private static let statusIconSize = NSSize(width: 18, height: 18)
 
     private override init() {
         super.init()
+        languageStore.$language
+            .sink { [weak self] language in
+                self?.refreshStatusItemLocalization(language: language)
+            }
+            .store(in: &cancellables)
     }
 
     func start() {
         guard statusItem == nil else { return }
 
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let item = NSStatusBar.system.statusItem(withLength: Self.statusItemLength)
+        item.isVisible = true
         item.button?.image = Self.makeStatusBarIcon()
         item.button?.imageScaling = .scaleProportionallyDown
-        item.button?.imagePosition = .imageLeft
-        item.button?.contentTintColor = .labelColor
-        item.button?.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
-        item.button?.title = "PeakHalo"
+        item.button?.imagePosition = .imageOnly
+        item.button?.title = ""
+        item.button?.isBordered = false
+        item.button?.setAccessibilityLabel(languageStore.localizedString("PeakHalo"))
         item.button?.target = self
         item.button?.action = #selector(handleStatusItemClick(_:))
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         item.button?.toolTip = languageStore.localizedString("PeakHalo")
         statusItem = item
+        refreshStatusItemLocalization()
     }
 
     func stop() {
@@ -52,27 +63,14 @@ final class MenuBarStatusItemController: NSObject {
 
     private func showMenu() {
         guard let statusItem, let button = statusItem.button else { return }
-        if preferences.panelActivationMode == .menuBarIcon {
-            NotchWindowManager.shared.close(animated: false)
-        }
+        NotchWindowManager.shared.close(animated: false)
 
         let menu = NSMenu()
-        if preferences.panelActivationMode == .menuBarIcon {
-            menu.addItem(
-                withTitle: languageStore.localizedString("Toggle Panel"),
-                action: #selector(togglePanel),
-                keyEquivalent: ""
-            )
-            menu.addItem(.separator())
-        } else {
-            NotchWindowManager.shared.close(animated: false)
-        }
         menu.addItem(
             withTitle: languageStore.localizedString("Settings"),
             action: #selector(showSettings),
             keyEquivalent: ","
         )
-        menu.addItem(.separator())
         menu.addItem(
             withTitle: languageStore.localizedString("Quit PeakHalo"),
             action: #selector(quit),
@@ -88,9 +86,14 @@ final class MenuBarStatusItemController: NSObject {
         statusItem.menu = nil
     }
 
-    @objc
-    private func togglePanel() {
-        NotchWindowManager.shared.toggle(fromMenuBarAnchor: statusItemAnchorRect())
+    private func refreshStatusItemLocalization(language: AppLanguage? = nil) {
+        guard let button = statusItem?.button else { return }
+        let title = AppLocalization.localizedString(
+            "PeakHalo",
+            language: language ?? languageStore.language
+        )
+        button.setAccessibilityLabel(title)
+        button.toolTip = title
     }
 
     @objc
@@ -114,20 +117,11 @@ final class MenuBarStatusItemController: NSObject {
     }
 
     private static func makeStatusBarIcon() -> NSImage {
-        if let image = NSImage(
-            systemSymbolName: "waveform.path.ecg",
-            accessibilityDescription: AppLocalization.localizedString("PeakHalo", language: .system)
-        ) {
-            image.isTemplate = true
-            image.size = NSSize(width: 18, height: 18)
-            return image
-        }
-
-        return makeFallbackStatusBarIcon()
+        makeLogoStatusBarIcon()
     }
 
-    private static func makeFallbackStatusBarIcon() -> NSImage {
-        let size = NSSize(width: 18, height: 18)
+    private static func makeLogoStatusBarIcon() -> NSImage {
+        let size = statusIconSize
         let image = NSImage(size: size, flipped: false) { rect in
             let strokeColor = NSColor.black.withAlphaComponent(0.92)
             strokeColor.setStroke()

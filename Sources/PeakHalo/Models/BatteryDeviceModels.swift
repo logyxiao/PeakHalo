@@ -9,19 +9,23 @@ enum BatteryDeviceKind: String, CaseIterable, Sendable {
     case unknown
 
     var title: String {
+        String(localized: String.LocalizationValue(titleKey))
+    }
+
+    var titleKey: String {
         switch self {
         case .computer:
-            String(localized: "Computer")
+            "Computer"
         case .headphones:
-            String(localized: "Headphones")
+            "Headphones"
         case .trackpad:
-            String(localized: "Trackpad")
+            "Trackpad"
         case .keyboard:
-            String(localized: "Keyboard")
+            "Keyboard"
         case .mouse:
-            String(localized: "Mouse")
+            "Mouse"
         case .unknown:
-            String(localized: "Unknown Device")
+            "Unknown Device"
         }
     }
 

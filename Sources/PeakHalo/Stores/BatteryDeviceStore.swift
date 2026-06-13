@@ -6,7 +6,7 @@ final class BatteryDeviceStore: NSObject, ObservableObject {
 
     @Published private(set) var devices: [BatteryDevice] = []
     @Published private(set) var isRefreshing = false
-    @Published private(set) var lastMessage: String?
+    @Published private(set) var lastMessage: LocalizedMessage?
 
     private let service = BatteryDeviceService()
     private let worker = BatteryDeviceWorker()
@@ -60,7 +60,7 @@ final class BatteryDeviceStore: NSObject, ObservableObject {
         hasLoaded = true
         self.devices = devices
         isRefreshing = false
-        lastMessage = devices.isEmpty ? String(localized: "No battery devices found.") : nil
+        lastMessage = devices.isEmpty ? .string("No battery devices found.") : nil
     }
 }
 

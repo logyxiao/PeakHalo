@@ -5,6 +5,8 @@ import Foundation
 final class ProcessMonitor {
     private var previousSamples: [pid_t: ProcessSample] = [:]
     private var previousAggregatePeakMemory: [String: UInt64] = [:]
+    private var bundleMetadataCache: [String: ProcessBundleMetadata] = [:]
+    private var appIconCache: [String: NSImage] = [:]
 
     func sample() -> [ProcessResourceItem] {
         let now = Date()
@@ -134,11 +136,11 @@ final class ProcessMonitor {
                 ?? contexts.byPID[pid]?.bundlePath
             let appContext = contexts.byPID[pid]
                 ?? appBundlePath.flatMap { contexts.byPath[$0] }
-            let bundle = appBundlePath.flatMap { Bundle(url: URL(fileURLWithPath: $0)) }
+            let bundleMetadata = appBundlePath.map { metadata(forBundlePath: $0) }
             let appName = appContext?.name
-                ?? Self.bundleDisplayName(from: bundle)
+                ?? bundleMetadata?.displayName
                 ?? appBundlePath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
-            let bundleIdentifier = appContext?.bundleIdentifier ?? bundle?.bundleIdentifier
+            let bundleIdentifier = appContext?.bundleIdentifier ?? bundleMetadata?.bundleIdentifier
             let memoryBytes = readPhysicalFootprint(pid: pid) ?? UInt64(taskInfo.pti_resident_size)
 
             return ProcessObservation(
@@ -213,6 +215,21 @@ final class ProcessMonitor {
         return String(cString: buffer)
     }
 
+    private func metadata(forBundlePath path: String) -> ProcessBundleMetadata {
+        if let cached = bundleMetadataCache[path] {
+            return cached
+        }
+
+        let bundle = Bundle(url: URL(fileURLWithPath: path))
+        let metadata = ProcessBundleMetadata(
+            displayName: Self.bundleDisplayName(from: bundle),
+            bundleIdentifier: bundle?.bundleIdentifier
+        )
+        bundleMetadataCache[path] = metadata
+        trimCacheIfNeeded(&bundleMetadataCache)
+        return metadata
+    }
+
     private func readPhysicalFootprint(pid: pid_t) -> UInt64? {
         var usage = rusage_info_v4()
         let result = withUnsafeMutablePointer(to: &usage) { pointer in
@@ -236,7 +253,7 @@ final class ProcessMonitor {
                     ?? bundlePath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent },
                 bundleIdentifier: application.bundleIdentifier,
                 bundlePath: bundlePath,
-                icon: application.icon,
+                icon: icon(for: application, bundlePath: bundlePath),
                 application: application
             )
 
@@ -247,6 +264,26 @@ final class ProcessMonitor {
         }
 
         return RunningApplicationContexts(byPID: byPID, byPath: byPath)
+    }
+
+    private func icon(for application: NSRunningApplication, bundlePath: String?) -> NSImage? {
+        let key = application.bundleIdentifier
+            ?? bundlePath
+            ?? "pid:\(application.processIdentifier)"
+
+        if let cached = appIconCache[key] {
+            return cached
+        }
+
+        let icon = application.icon
+        appIconCache[key] = icon
+        trimCacheIfNeeded(&appIconCache)
+        return icon
+    }
+
+    private func trimCacheIfNeeded<Value>(_ cache: inout [String: Value]) {
+        guard cache.count > 160 else { return }
+        cache.removeAll(keepingCapacity: true)
     }
 
     private static func aggregationKey(for observation: ProcessObservation) -> String {
@@ -270,6 +307,11 @@ final class ProcessMonitor {
             return String(bytes: bytes, encoding: .utf8) ?? ""
         }
     }
+}
+
+private struct ProcessBundleMetadata {
+    let displayName: String?
+    let bundleIdentifier: String?
 }
 
 struct ProcessObservation {

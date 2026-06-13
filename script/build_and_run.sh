@@ -20,6 +20,8 @@ APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 ENTITLEMENTS_PLIST="$DIST_DIR/$APP_NAME.entitlements"
 APP_ICON_SOURCE="$ROOT_DIR/Sources/PeakHalo/Resources/AppIcon.icns"
+SPARKLE_FRAMEWORK_SOURCE="${SPARKLE_FRAMEWORK_SOURCE:-$ROOT_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework}"
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-${DEVELOPER_ID_APPLICATION:-"-"}}"
 
 cd "$ROOT_DIR"
 
@@ -37,6 +39,8 @@ github_repository_slug() {
 }
 
 APP_UPDATE_REPOSITORY="${APP_UPDATE_REPOSITORY:-${GITHUB_REPOSITORY:-$(github_repository_slug)}}"
+SPARKLE_APPCAST_URL="${SPARKLE_APPCAST_URL:-https://github.com/$APP_UPDATE_REPOSITORY/releases/latest/download/appcast.xml}"
+SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-}"
 
 if [[ "$MODE" != "--build-app" && "$MODE" != "build-app" && "$MODE" != "bundle" ]]; then
   pkill -x "$APP_NAME" >/dev/null 2>&1 || true
@@ -55,6 +59,14 @@ while IFS= read -r framework; do
   cp -R "$framework" "$APP_FRAMEWORKS/"
 done < <(find "$BUILD_BIN_DIR" -maxdepth 1 -type d -name '*.framework')
 
+if [[ -d "$SPARKLE_FRAMEWORK_SOURCE" ]]; then
+  rm -rf "$APP_FRAMEWORKS/Sparkle.framework"
+  cp -R "$SPARKLE_FRAMEWORK_SOURCE" "$APP_FRAMEWORKS/"
+elif [[ -n "$SPARKLE_PUBLIC_ED_KEY" ]]; then
+  echo "SPARKLE_PUBLIC_ED_KEY is set but Sparkle.framework was not found at $SPARKLE_FRAMEWORK_SOURCE" >&2
+  exit 1
+fi
+
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BINARY" >/dev/null 2>&1 || true
 
 while IFS= read -r resource_bundle; do
@@ -67,6 +79,23 @@ while IFS= read -r resource_bundle; do
     done < <(find "$resource_bundle" -maxdepth 1 -type d -name '*.lproj')
   fi
 done < <(find "$BUILD_BIN_DIR" -maxdepth 1 -type d -name '*.bundle')
+
+SPARKLE_INFO_PLIST_ENTRIES=""
+if [[ -n "$SPARKLE_APPCAST_URL" ]]; then
+  SPARKLE_INFO_PLIST_ENTRIES+="  <key>SUFeedURL</key>
+  <string>$SPARKLE_APPCAST_URL</string>
+  <key>SUEnableAutomaticChecks</key>
+  <true/>
+  <key>SUScheduledCheckInterval</key>
+  <integer>86400</integer>
+"
+fi
+
+if [[ -n "$SPARKLE_PUBLIC_ED_KEY" ]]; then
+  SPARKLE_INFO_PLIST_ENTRIES+="  <key>SUPublicEDKey</key>
+  <string>$SPARKLE_PUBLIC_ED_KEY</string>
+"
+fi
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -87,7 +116,7 @@ cat >"$INFO_PLIST" <<PLIST
   <string>AppIcon</string>
   <key>PeakHaloGitHubRepository</key>
   <string>$APP_UPDATE_REPOSITORY</string>
-  <key>CFBundlePackageType</key>
+${SPARKLE_INFO_PLIST_ENTRIES}  <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
@@ -122,11 +151,16 @@ cat >"$ENTITLEMENTS_PLIST" <<PLIST
 </plist>
 PLIST
 
+codesign_args=(--force --sign "$CODESIGN_IDENTITY")
+if [[ "$CODESIGN_IDENTITY" != "-" ]]; then
+  codesign_args+=(--options runtime --timestamp)
+fi
+
 while IFS= read -r framework; do
-  codesign --force --deep --sign - "$framework" >/dev/null
+  codesign "${codesign_args[@]}" --deep "$framework" >/dev/null
 done < <(find "$APP_FRAMEWORKS" -maxdepth 1 -type d -name '*.framework')
 
-codesign --force --deep --sign - --entitlements "$ENTITLEMENTS_PLIST" "$APP_BUNDLE" >/dev/null
+codesign "${codesign_args[@]}" --deep --entitlements "$ENTITLEMENTS_PLIST" "$APP_BUNDLE" >/dev/null
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"

@@ -8,7 +8,7 @@ enum NotchMetricsTab: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: LocalizedStringKey {
+    var titleKey: String {
         switch self {
         case .monitor:
             "Monitor"
@@ -19,6 +19,10 @@ enum NotchMetricsTab: String, CaseIterable, Identifiable {
         case .controls:
             "Controls"
         }
+    }
+
+    var title: LocalizedStringKey {
+        LocalizedStringKey(titleKey)
     }
 
     var symbol: String {

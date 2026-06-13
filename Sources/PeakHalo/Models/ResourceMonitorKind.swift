@@ -10,7 +10,7 @@ enum ResourceMonitorKind: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { rawValue }
 
-    var title: LocalizedStringKey {
+    var titleKey: String {
         switch self {
         case .cpu:
             "CPU"
@@ -25,6 +25,10 @@ enum ResourceMonitorKind: String, CaseIterable, Identifiable, Hashable {
         case .battery:
             "Battery"
         }
+    }
+
+    var title: LocalizedStringKey {
+        LocalizedStringKey(titleKey)
     }
 
     var symbol: String {
