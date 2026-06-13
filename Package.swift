@@ -12,7 +12,7 @@ let package = Package(
         .executable(name: "PeakHalo", targets: ["PeakHalo"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.3.0"),
+        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", exact: "2.0.2"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.7.0")
     ],
     targets: [
