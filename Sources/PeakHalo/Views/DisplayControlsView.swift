@@ -16,6 +16,8 @@ struct DisplayControlsView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     displayList
+                    appearanceControls
+                        .padding(.top, 6)
 
                     if let message = controller.lastMessage {
                         Text(languageStore.localizedString(message))
@@ -32,6 +34,7 @@ struct DisplayControlsView: View {
             .frame(maxWidth: .infinity, maxHeight: 246, alignment: .topLeading)
             .onAppear {
                 controller.refreshIfNeeded()
+                controller.refreshAppearanceState()
             }
         } else {
             Form {
@@ -56,10 +59,29 @@ struct DisplayControlsView: View {
                         Text(languageStore.localizedString("Adjust the brightness of your connected monitors."))
                     }
                 }
+
+                Section {
+                    Toggle(languageStore.localizedString("Night Shift"), isOn: Binding(
+                        get: { controller.appearanceState.isNightShiftEnabled },
+                        set: { controller.setNightShiftEnabled($0) }
+                    ))
+                    .disabled(!controller.appearanceState.isNightShiftAvailable)
+
+                    Toggle(languageStore.localizedString("True Tone"), isOn: Binding(
+                        get: { controller.appearanceState.isTrueToneEnabled },
+                        set: { controller.setTrueToneEnabled($0) }
+                    ))
+                    .disabled(!controller.appearanceState.isTrueToneAvailable)
+                } header: {
+                    Text(languageStore.localizedString("System Display"))
+                } footer: {
+                    Text(languageStore.localizedString("Night Shift and True Tone availability depends on Mac model and display support."))
+                }
             }
             .formStyle(.grouped)
             .onAppear {
                 controller.refreshIfNeeded()
+                controller.refreshAppearanceState()
             }
         }
     }
@@ -78,6 +100,92 @@ struct DisplayControlsView: View {
                 }
             }
         }
+    }
+
+    private var appearanceControls: some View {
+        VStack(spacing: 3) {
+            appearanceToggleRow(
+                title: "Night Shift",
+                systemImage: "moon.stars.fill",
+                isOn: controller.appearanceState.isNightShiftEnabled,
+                isEnabled: controller.appearanceState.isNightShiftAvailable,
+                onChange: controller.setNightShiftEnabled
+            )
+            appearanceToggleRow(
+                title: "True Tone",
+                systemImage: "circle.lefthalf.filled",
+                isOn: controller.appearanceState.isTrueToneEnabled,
+                isEnabled: controller.appearanceState.isTrueToneAvailable,
+                onChange: controller.setTrueToneEnabled
+            )
+        }
+    }
+
+    private func appearanceToggleRow(
+        title: String,
+        systemImage: String,
+        isOn: Bool,
+        isEnabled: Bool,
+        onChange: @escaping (Bool) -> Void
+    ) -> some View {
+        Button {
+            onChange(!isOn)
+        } label: {
+            HStack(spacing: compact ? 8 : 10) {
+                ZStack {
+                    Circle()
+                        .fill(appearanceAccentColor(isOn: isOn, isEnabled: isEnabled).opacity(isOn ? 0.95 : 0.14))
+
+                    Image(systemName: systemImage)
+                        .font(.system(size: compact ? 13 : 15, weight: .semibold))
+                        .foregroundStyle(isOn && isEnabled ? .white : appearanceAccentColor(isOn: isOn, isEnabled: isEnabled))
+                }
+                .frame(width: compact ? 30 : 34, height: compact ? 30 : 34)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(languageStore.localizedString(title))
+                        .font(compact ? .caption.weight(.semibold) : .callout.weight(.semibold))
+                        .foregroundStyle(isEnabled ? primaryColor : secondaryColor)
+                        .lineLimit(1)
+
+                    Text(languageStore.localizedString(isOn ? "On" : "Off"))
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(isOn && isEnabled ? appearanceAccentColor(isOn: isOn, isEnabled: isEnabled) : secondaryColor)
+                }
+
+                Spacer(minLength: 8)
+
+                Text(languageStore.localizedString(isOn ? "On" : "Off"))
+                    .font(.caption.weight(.bold))
+                    .monospacedDigit()
+                    .foregroundStyle(isOn && isEnabled ? .white : secondaryColor)
+                    .padding(.horizontal, compact ? 9 : 11)
+                    .padding(.vertical, compact ? 4 : 5)
+                    .background {
+                        Capsule()
+                            .fill(isOn && isEnabled ? appearanceAccentColor(isOn: isOn, isEnabled: isEnabled) : secondaryColor.opacity(0.14))
+                    }
+            }
+            .padding(.horizontal, compact ? 7 : 9)
+            .frame(maxWidth: .infinity, minHeight: compact ? 42 : 48, maxHeight: compact ? 42 : 48)
+            .background {
+                RoundedRectangle(cornerRadius: compact ? 10 : 12)
+                    .fill(appearanceAccentColor(isOn: isOn, isEnabled: isEnabled).opacity(isOn && isEnabled ? 0.14 : 0.06))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: compact ? 10 : 12)
+                    .stroke(appearanceAccentColor(isOn: isOn, isEnabled: isEnabled).opacity(isOn && isEnabled ? 0.42 : 0.12), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.55)
+        .help(Text(languageStore.localizedString(isEnabled ? title : "Unavailable")))
+    }
+
+    private func appearanceAccentColor(isOn: Bool, isEnabled: Bool) -> Color {
+        guard isEnabled else { return secondaryColor }
+        return isOn ? controlProgressColor : secondaryColor
     }
 
     private func displayBrightnessRow(_ display: ControlledDisplay) -> some View {
@@ -187,8 +295,15 @@ final class DisplayControlController: ObservableObject {
     @Published private(set) var displays: [ControlledDisplay] = []
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastMessage: LocalizedMessage?
+    @Published private(set) var appearanceState = DisplayAppearanceState(
+        isNightShiftAvailable: false,
+        isNightShiftEnabled: false,
+        isTrueToneAvailable: false,
+        isTrueToneEnabled: false
+    )
 
     private let service = DisplayControlService()
+    private lazy var appearanceService = DisplayAppearanceService()
     private let worker = DisplayControlWorker()
     private var hasLoaded = false
 
@@ -217,6 +332,28 @@ final class DisplayControlController: ObservableObject {
         displays.first { $0.id == displayID }?.value(for: control) ?? control.defaultValue
     }
 
+    func setNightShiftEnabled(_ isEnabled: Bool) {
+        guard appearanceService.setNightShiftEnabled(isEnabled) else {
+            lastMessage = .string("Night Shift is unavailable.")
+            refreshAppearanceState()
+            return
+        }
+
+        refreshAppearanceState()
+        lastMessage = nil
+    }
+
+    func setTrueToneEnabled(_ isEnabled: Bool) {
+        guard appearanceService.setTrueToneEnabled(isEnabled) else {
+            lastMessage = .string("True Tone is unavailable.")
+            refreshAppearanceState()
+            return
+        }
+
+        refreshAppearanceState()
+        lastMessage = nil
+    }
+
     func setValue(_ value: Double, control: DisplayControlKind, displayID: CGDirectDisplayID) {
         guard let index = displays.firstIndex(where: { $0.id == displayID }) else { return }
         let display = displays[index]
@@ -234,6 +371,10 @@ final class DisplayControlController: ObservableObject {
                 self?.apply(result)
             }
         }
+    }
+
+    func refreshAppearanceState() {
+        appearanceState = appearanceService.state()
     }
 
     private func apply(_ result: DisplayWriteResult) {
