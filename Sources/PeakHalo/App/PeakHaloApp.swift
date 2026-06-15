@@ -32,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         SystemMetricsService.shared.start()
         NotchWindowManager.shared.show(metricsService: SystemMetricsService.shared)
-        MenuBarStatusItemController.shared.start()
+        MenuBarStatusItemController.shared.start(metricsService: SystemMetricsService.shared)
         SparkleUpdateService.shared.start()
         presentInitialSettingsWindowIfNeeded()
 

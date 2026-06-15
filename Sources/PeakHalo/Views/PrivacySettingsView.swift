@@ -4,6 +4,7 @@ import SwiftUI
 
 struct PermissionsSettingsView: View {
     @ObservedObject private var audioPermission = AudioRecordingPermissionController.shared
+    @ObservedObject private var audioStore = AudioControlStore.shared
     @ObservedObject private var languageStore = AppLanguageStore.shared
     @State private var bluetoothAuthorization = CBManager.authorization
 
@@ -27,7 +28,7 @@ struct PermissionsSettingsView: View {
                     }
 
                     Button(languageStore.localizedString("Check Again")) {
-                        _ = audioPermission.refreshStatus()
+                        audioStore.recheckAudioCapturePermission()
                     }
                 }
                 .padding(.vertical, 4)
@@ -58,11 +59,11 @@ struct PermissionsSettingsView: View {
         }
         .formStyle(.grouped)
         .onAppear {
-            _ = audioPermission.refreshStatus()
+            audioStore.refreshCaptureSupport()
             refreshBluetoothAuthorization()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            _ = audioPermission.refreshStatus()
+            audioStore.refreshCaptureSupport()
             refreshBluetoothAuthorization()
         }
     }
@@ -163,7 +164,7 @@ struct PermissionsSettingsView: View {
     private func requestAudioCapturePermission() {
         audioPermission.resetRequestSuppressionForUserRetry()
         audioPermission.requestIfNeeded { _ in
-            _ = audioPermission.refreshStatus()
+            audioStore.refreshCaptureSupport()
         }
     }
 

@@ -8,21 +8,50 @@ final class MenuBarStatusItemController: NSObject {
     private let preferences = DisplayPreferencesStore.shared
     private let languageStore = AppLanguageStore.shared
     private var statusItem: NSStatusItem?
+    private weak var metricsService: SystemMetricsService?
+    private var currentSnapshot: SystemMetricsSnapshot = .zero
     private var cancellables = Set<AnyCancellable>()
+    private var metricsCancellable: AnyCancellable?
     private static let statusItemLength: CGFloat = NSStatusItem.squareLength
     private static let statusIconSize = NSSize(width: 18, height: 18)
+    private static let metricsImageHeight: CGFloat = 22
+    private static let metricsOuterPadding: CGFloat = 5
+    private static let metricsColumnSpacing: CGFloat = 7
 
     private override init() {
         super.init()
         languageStore.$language
-            .sink { [weak self] language in
-                self?.refreshStatusItemLocalization(language: language)
+            .sink { [weak self] _ in
+                self?.refreshStatusItem()
+            }
+            .store(in: &cancellables)
+
+        preferences.$panelActivationMode
+            .sink { [weak self] _ in
+                self?.refreshStatusItem()
+            }
+            .store(in: &cancellables)
+
+        preferences.$collapsedVisibleMonitors
+            .sink { [weak self] _ in
+                self?.refreshStatusItem()
             }
             .store(in: &cancellables)
     }
 
-    func start() {
-        guard statusItem == nil else { return }
+    func start(metricsService: SystemMetricsService) {
+        self.metricsService = metricsService
+        currentSnapshot = metricsService.snapshot
+        metricsCancellable = metricsService.$snapshot
+            .sink { [weak self] snapshot in
+                self?.currentSnapshot = snapshot
+                self?.refreshStatusItem()
+            }
+
+        guard statusItem == nil else {
+            refreshStatusItem()
+            return
+        }
 
         let item = NSStatusBar.system.statusItem(withLength: Self.statusItemLength)
         item.isVisible = true
@@ -37,13 +66,16 @@ final class MenuBarStatusItemController: NSObject {
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         item.button?.toolTip = languageStore.localizedString("PeakHalo")
         statusItem = item
-        refreshStatusItemLocalization()
+        refreshStatusItem()
     }
 
     func stop() {
         guard let statusItem else { return }
         NSStatusBar.system.removeStatusItem(statusItem)
         self.statusItem = nil
+        metricsCancellable?.cancel()
+        metricsCancellable = nil
+        metricsService = nil
     }
 
     @objc
@@ -86,12 +118,30 @@ final class MenuBarStatusItemController: NSObject {
         statusItem.menu = nil
     }
 
-    private func refreshStatusItemLocalization(language: AppLanguage? = nil) {
-        guard let button = statusItem?.button else { return }
-        let title = AppLocalization.localizedString(
-            "PeakHalo",
-            language: language ?? languageStore.language
-        )
+    private func refreshStatusItem() {
+        guard let statusItem, let button = statusItem.button else { return }
+
+        let title = AppLocalization.localizedString("PeakHalo", language: languageStore.language)
+        if preferences.panelActivationMode == .menuBarIcon {
+            let columns = menuBarMetricColumns()
+            if !columns.isEmpty {
+                let image = Self.makeMetricStatusBarImage(columns: columns)
+                statusItem.length = image.size.width
+                button.image = image
+                button.imageScaling = .scaleNone
+                button.imagePosition = .imageOnly
+                button.title = ""
+                button.setAccessibilityLabel(metricAccessibilityTitle(title: title, columns: columns))
+                button.toolTip = metricAccessibilityTitle(title: title, columns: columns)
+                return
+            }
+        }
+
+        statusItem.length = Self.statusItemLength
+        button.image = Self.makeStatusBarIcon()
+        button.imageScaling = .scaleProportionallyDown
+        button.imagePosition = .imageOnly
+        button.title = ""
         button.setAccessibilityLabel(title)
         button.toolTip = title
     }
@@ -116,8 +166,106 @@ final class MenuBarStatusItemController: NSObject {
         return window.convertToScreen(button.convert(button.bounds, to: nil))
     }
 
+    private func menuBarMetricColumns() -> [MenuBarMetricColumn] {
+        let resources = ResourceMonitorKind.allCases.filter {
+            preferences.collapsedVisibleMonitors.contains($0)
+        }
+
+        return MenuBarMetricFormatter.columns(
+            for: currentSnapshot,
+            resources: resources
+        ) { key in
+            languageStore.localizedString(key)
+        }
+    }
+
+    private func metricAccessibilityTitle(title: String, columns: [MenuBarMetricColumn]) -> String {
+        let summary = columns
+            .map(\.accessibilityText)
+            .joined(separator: ", ")
+        return summary.isEmpty ? title : "\(title): \(summary)"
+    }
+
     private static func makeStatusBarIcon() -> NSImage {
         makeLogoStatusBarIcon()
+    }
+
+    private static func makeMetricStatusBarImage(columns: [MenuBarMetricColumn]) -> NSImage {
+        let metricAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 8.8, weight: .semibold),
+            .foregroundColor: NSColor.labelColor
+        ]
+        let columnWidths = columns.map { column in
+            max(
+                Self.minimumMetricColumnWidth(for: column.resource),
+                Self.textWidth(column.topText, attributes: metricAttributes),
+                Self.textWidth(column.bottomText, attributes: metricAttributes)
+            )
+        }
+        let totalColumnsWidth = columnWidths.reduce(0, +)
+        let spacing = CGFloat(max(columns.count - 1, 0)) * metricsColumnSpacing
+        let width = ceil(metricsOuterPadding * 2 + totalColumnsWidth + spacing)
+        let size = NSSize(width: width, height: metricsImageHeight)
+
+        let image = NSImage(size: size, flipped: false) { rect in
+            var x = metricsOuterPadding
+            for (index, column) in columns.enumerated() {
+                let columnWidth = columnWidths[index]
+                Self.drawCentered(
+                    column.topText,
+                    attributes: metricAttributes,
+                    x: x,
+                    y: rect.maxY - 10.2,
+                    width: columnWidth
+                )
+                Self.drawCentered(
+                    column.bottomText,
+                    attributes: metricAttributes,
+                    x: x,
+                    y: 1.6,
+                    width: columnWidth
+                )
+                x += columnWidth + metricsColumnSpacing
+            }
+            return true
+        }
+        image.isTemplate = false
+        image.accessibilityDescription = AppLocalization.localizedString("PeakHalo", language: .system)
+        return image
+    }
+
+    private static func minimumMetricColumnWidth(for resource: ResourceMonitorKind) -> CGFloat {
+        switch resource {
+        case .network:
+            58
+        case .storage:
+            34
+        case .memory:
+            38
+        case .battery:
+            36
+        case .cpu, .gpu:
+            30
+        }
+    }
+
+    private static func textWidth(_ text: String, attributes: [NSAttributedString.Key: Any]) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: attributes).width)
+    }
+
+    private static func drawCentered(
+        _ text: String,
+        attributes: [NSAttributedString.Key: Any],
+        x: CGFloat,
+        y: CGFloat,
+        width: CGFloat
+    ) {
+        let textSize = (text as NSString).size(withAttributes: attributes)
+        let textX = x + max(0, (width - textSize.width) / 2)
+        (text as NSString).draw(
+            at: NSPoint(x: textX, y: y),
+            withAttributes: attributes
+        )
     }
 
     private static func makeLogoStatusBarIcon() -> NSImage {

@@ -55,6 +55,29 @@ final class AudioRecordingPermissionController: ObservableObject {
             return
         }
 
+        performRequest(completion: completion)
+    }
+
+    func recheckFromSettings(completion: @escaping (AudioRecordingPermissionStatus) -> Void) {
+        refreshStatus()
+        guard status == .unknown else {
+            completion(status)
+            return
+        }
+
+        performRequest(completion: completion)
+    }
+
+    func markDenied() {
+        status = .denied
+    }
+
+    func resetRequestSuppressionForUserRetry() {
+        hasRequestedInProcess = false
+        defaults.set(false, forKey: Self.requestedDefaultsKey)
+    }
+
+    private func performRequest(completion: @escaping (AudioRecordingPermissionStatus) -> Void) {
         hasRequestedInProcess = true
         defaults.set(true, forKey: Self.requestedDefaultsKey)
 
@@ -66,15 +89,6 @@ final class AudioRecordingPermissionController: ObservableObject {
                 completion(self.status)
             }
         }
-    }
-
-    func markDenied() {
-        status = .denied
-    }
-
-    func resetRequestSuppressionForUserRetry() {
-        hasRequestedInProcess = false
-        defaults.set(false, forKey: Self.requestedDefaultsKey)
     }
 
     private func registerForActivation() {

@@ -203,7 +203,13 @@ final class AudioControlStore: ObservableObject {
         updateAppItem(itemID) { item in
             item.isMuted = isMuted
         }
-        updateProcessingState(itemID: itemID)
+
+        if isMuted, !processingAppIDs.contains(itemID) {
+            manuallyDisabledProcessingAppIDs.remove(itemID)
+            activateOrSwitchProcessing(itemID: itemID)
+        } else {
+            updateProcessingState(itemID: itemID)
+        }
     }
 
     func setAppBoost(_ boost: AudioBoostLevel, itemID: String) {
@@ -337,8 +343,25 @@ final class AudioControlStore: ObservableObject {
     }
 
     func refreshCaptureSupport() {
-        let nextStatus = recordingPermission.refreshStatus()
-        let nextState = Self.captureSupport(for: nextStatus)
+        applyCaptureSupportStatus(recordingPermission.refreshStatus())
+    }
+
+    func recheckAudioCapturePermission() {
+        recordingPermission.recheckFromSettings { [weak self] status in
+            guard let self else { return }
+            self.applyCaptureSupportStatus(status)
+            if self.captureSupport.allowsAppAudioControl {
+                self.startProcessMonitoringIfPermitted()
+                self.lastMessage = nil
+                self.refresh()
+            } else {
+                self.lastMessage = self.captureSupport.message
+            }
+        }
+    }
+
+    private func applyCaptureSupportStatus(_ status: AudioRecordingPermissionStatus) {
+        let nextState = Self.captureSupport(for: status)
         captureSupport = nextState
 
         if !nextState.allowsAppAudioControl, !processingAppIDs.isEmpty {
@@ -725,7 +748,7 @@ final class AudioControlStore: ObservableObject {
     private func requestAudioCapturePermissionIfNeeded() {
         recordingPermission.requestIfNeeded { [weak self] status in
             guard let self else { return }
-            self.captureSupport = Self.captureSupport(for: status)
+            self.applyCaptureSupportStatus(status)
             if self.captureSupport.allowsAppAudioControl {
                 self.startProcessMonitoringIfPermitted()
                 self.lastMessage = nil

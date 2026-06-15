@@ -34,9 +34,9 @@
 "Split Layout" = "Split Layout";
 "Standard Notch" = "Standard Notch";
 "Switch between the edge-attached notch and the floating island." = "Switch between the edge-attached notch and the floating island.";
-"Choose which monitors appear while the notch or island is collapsed." = "Choose which monitors appear while the notch or island is collapsed.";
+"Choose which monitors appear while the notch or island is collapsed." = "Choose which monitors appear while the notch or island is collapsed. The same selection is shown in the menu bar when using Menu Bar Icon mode.";
 "Choose how the control panel is expanded." = "Choose how the control panel is expanded.";
-"Click the menu bar icon to expand or collapse the controls." = "Click the menu bar icon to expand or collapse the controls.";
+"Click the menu bar icon to expand or collapse the controls." = "Click the menu bar monitor to expand or collapse the controls. Selected collapsed monitors are shown in the menu bar.";
 "Allowed" = "Allowed";
 "Denied" = "Denied";
 "Manage the system permissions PeakHalo uses." = "Manage the system permissions PeakHalo uses.";

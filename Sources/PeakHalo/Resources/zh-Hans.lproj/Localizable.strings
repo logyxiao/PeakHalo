@@ -34,9 +34,9 @@
 "Split Layout" = "分栏布局";
 "Standard Notch" = "标准刘海";
 "Switch between the edge-attached notch and the floating island." = "在贴边刘海和悬浮灵动岛之间切换。";
-"Choose which monitors appear while the notch or island is collapsed." = "选择刘海或灵动岛收起时显示哪些监视项。";
+"Choose which monitors appear while the notch or island is collapsed." = "选择刘海或灵动岛收起时显示哪些监视项；使用菜单栏图标模式时，菜单栏也会显示同一组监视项。";
 "Choose how the control panel is expanded." = "选择控制面板的展开方式。";
-"Click the menu bar icon to expand or collapse the controls." = "点击菜单栏图标展开或收起控制面板。";
+"Click the menu bar icon to expand or collapse the controls." = "点击菜单栏监视器展开或收起控制面板；菜单栏会显示已选择的收起态监视项。";
 "Allowed" = "已允许";
 "Denied" = "已拒绝";
 "Manage the system permissions PeakHalo uses." = "管理 PeakHalo 使用的系统权限。";

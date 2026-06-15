@@ -561,6 +561,18 @@ private struct NotchHeaderTabs: View {
             }
             .buttonStyle(.plain)
             .help(strings.text("Settings"))
+
+            Button {
+                NSApplication.shared.terminate(nil)
+            } label: {
+                Image(systemName: "power")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .frame(width: 28, height: 24)
+                    .background(Color.white.opacity(0.09), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .help(strings.text("Quit"))
         }
         .frame(height: 28)
     }
