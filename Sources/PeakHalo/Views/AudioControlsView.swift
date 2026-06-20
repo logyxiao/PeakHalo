@@ -7,7 +7,6 @@ struct AudioControlsView: View {
     @ObservedObject private var languageStore = AppLanguageStore.shared
     @Environment(\.colorScheme) private var colorScheme
     @State private var playbackPickerItemID: String?
-    @State private var expandedEqualizerItemID: String?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -235,30 +234,8 @@ struct AudioControlsView: View {
                 .layoutPriority(1)
 
                 boostMenu(item)
-                equalizerButton(item)
-                processingButton(item)
             }
             .frame(maxWidth: .infinity, minHeight: compact ? 45 : 50, maxHeight: compact ? 45 : 50)
-
-            if expandedEqualizerItemID == item.id {
-                AudioEqualizerPanelView(
-                    item: item,
-                    compact: compact,
-                    primaryColor: primaryColor,
-                    secondaryColor: secondaryColor,
-                    tint: controlProgressColor,
-                    controlsEnabled: controlsEnabled,
-                    onEnabledChange: { isEnabled in
-                        store.setAppEqualizerEnabled(isEnabled, itemID: item.id)
-                    },
-                    onBandChange: { index, gain in
-                        store.setAppEqualizerBand(index, gain: gain, itemID: item.id)
-                    },
-                    onPreset: { preset in
-                        store.applyAppEqualizerPreset(preset, itemID: item.id)
-                    }
-                )
-            }
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
@@ -296,25 +273,6 @@ struct AudioControlsView: View {
         .fixedSize()
         .disabled(!controlsEnabled)
         .help(languageStore.localizedString("Boost"))
-    }
-
-    private func equalizerButton(_ item: AudioAppVolumeItem) -> some View {
-        let controlsEnabled = store.canControlAppAudio && !item.isIgnored
-        let isExpanded = expandedEqualizerItemID == item.id
-        let isActive = isExpanded || item.equalizer.isEnabled
-
-        return Button {
-            expandedEqualizerItemID = isExpanded ? nil : item.id
-        } label: {
-            Image(systemName: isExpanded ? "xmark" : "slider.vertical.3")
-                .font(.system(size: compact ? 12 : 14, weight: .semibold))
-                .frame(width: compact ? 22 : 24, height: compact ? 22 : 24)
-        }
-        .buttonStyle(.plain)
-        .disabled(!controlsEnabled)
-        .foregroundStyle(isActive ? .blue : primaryColor.opacity(controlsEnabled ? 0.62 : 0.24))
-        .fixedSize()
-        .help(languageStore.localizedString(isExpanded ? "Close Equalizer" : "Equalizer"))
     }
 
     private func playbackDeviceMenu(_ item: AudioAppVolumeItem) -> some View {
@@ -363,24 +321,6 @@ struct AudioControlsView: View {
         .fixedSize()
         .disabled(!controlsEnabled || store.outputDevices.isEmpty)
         .help(languageStore.localizedString("Playback Device"))
-    }
-
-    private func processingButton(_ item: AudioAppVolumeItem) -> some View {
-        let isEnabled = store.isProcessingEnabled(itemID: item.id)
-        let controlsEnabled = store.canControlAppAudio && item.isAudible && !item.isIgnored
-
-        return Button {
-            store.toggleProcessing(itemID: item.id)
-        } label: {
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: compact ? 12 : 14, weight: .semibold))
-                .frame(width: compact ? 22 : 24, height: compact ? 22 : 24)
-        }
-        .buttonStyle(.plain)
-        .disabled(!controlsEnabled)
-        .foregroundStyle(isEnabled ? .green : primaryColor.opacity(controlsEnabled ? 0.72 : 0.28))
-        .fixedSize()
-        .help(languageStore.localizedString(isEnabled ? "Disable Processing" : "Enable Processing"))
     }
 
     private func iconButton(
@@ -517,108 +457,6 @@ private struct AudioSlider: View {
                 .foregroundStyle(isEnabled ? primaryColor.opacity(0.72) : secondaryColor)
                 .frame(width: 42, alignment: .trailing)
         }
-    }
-}
-
-private struct AudioEqualizerPanelView: View {
-    @ObservedObject private var languageStore = AppLanguageStore.shared
-    let item: AudioAppVolumeItem
-    let compact: Bool
-    let primaryColor: Color
-    let secondaryColor: Color
-    let tint: Color
-    let controlsEnabled: Bool
-    let onEnabledChange: (Bool) -> Void
-    let onBandChange: (Int, Double) -> Void
-    let onPreset: (AudioEqualizerPreset) -> Void
-
-    private let labels = ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
-
-    var body: some View {
-        VStack(spacing: compact ? 7 : 9) {
-            HStack(spacing: 10) {
-                Toggle("", isOn: Binding(
-                    get: { item.equalizer.isEnabled },
-                    set: onEnabledChange
-                ))
-                .toggleStyle(.switch)
-                .scaleEffect(0.72)
-                .labelsHidden()
-                .disabled(!controlsEnabled)
-
-                Text("EQ")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(primaryColor)
-
-                Spacer()
-
-                Menu {
-                    ForEach(AudioEqualizerPreset.allCases) { preset in
-                        Button {
-                            onPreset(preset)
-                        } label: {
-                            Label(preset.name, systemImage: preset.settings.bandGains == item.equalizer.bandGains ? "checkmark" : "waveform")
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "wand.and.stars")
-                        Text(languageStore.localizedString("Preset"))
-                    }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(tint)
-                }
-                .menuStyle(.borderlessButton)
-                .disabled(!controlsEnabled)
-                .fixedSize()
-            }
-
-            HStack(alignment: .bottom, spacing: compact ? 4 : 7) {
-                ForEach(0..<AudioEqualizerSettings.bandCount, id: \.self) { index in
-                    VStack(spacing: 4) {
-                        Text(gainText(for: index))
-                            .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(secondaryColor)
-                            .frame(height: 10)
-
-                        Slider(
-                            value: Binding(
-                                get: { item.equalizer.bandGains[index] },
-                                set: { onBandChange(index, $0) }
-                            ),
-                            in: AudioEqualizerSettings.minGainDB...AudioEqualizerSettings.maxGainDB,
-                            step: 1
-                        )
-                        .rotationEffect(.degrees(-90))
-                        .frame(width: compact ? 74 : 86, height: 18)
-                        .disabled(!controlsEnabled || !item.equalizer.isEnabled)
-                        .tint(tint)
-
-                        Text(labels[index])
-                            .font(.system(size: 8, weight: .medium, design: .monospaced))
-                            .foregroundStyle(secondaryColor)
-                            .frame(height: 10)
-                    }
-                    .frame(width: compact ? 26 : 31, height: compact ? 104 : 116)
-                }
-            }
-            .opacity(item.equalizer.isEnabled ? 1 : 0.42)
-        }
-        .padding(.horizontal, compact ? 8 : 10)
-        .padding(.vertical, compact ? 7 : 9)
-        .background(primaryColor.opacity(compact ? 0.08 : 0.055), in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(primaryColor.opacity(compact ? 0.10 : 0.08), lineWidth: 0.5)
-        }
-    }
-
-    private func gainText(for index: Int) -> String {
-        let value = Int(item.equalizer.bandGains[index].rounded())
-        if value > 0 {
-            return "+\(value)"
-        }
-        return "\(value)"
     }
 }
 

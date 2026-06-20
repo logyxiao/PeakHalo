@@ -9,7 +9,6 @@ struct AudioProcessingPlannerTests {
         let plan = AudioProcessingPlanner.plan(
             processingItemIDs: ["missing", "ignored", "silent"],
             pendingItemIDs: [],
-            manuallyDisabledItemIDs: [],
             previousItems: [:],
             currentItems: [
                 appItem(id: "ignored", isAudible: true, isIgnored: true, objectIDs: [1]),
@@ -19,7 +18,7 @@ struct AudioProcessingPlannerTests {
 
         #expect(plan.deactivateItemIDs == ["ignored", "missing", "silent"])
         #expect(plan.restartItemIDs.isEmpty)
-        #expect(plan.activatePendingItemIDs.isEmpty)
+        #expect(plan.activateItemIDs.isEmpty)
     }
 
     @Test("Planner restarts processing when process object IDs change")
@@ -27,34 +26,34 @@ struct AudioProcessingPlannerTests {
         let plan = AudioProcessingPlanner.plan(
             processingItemIDs: ["app"],
             pendingItemIDs: [],
-            manuallyDisabledItemIDs: [],
             previousItems: ["app": appItem(id: "app", isAudible: true, isIgnored: false, objectIDs: [1])],
             currentItems: [appItem(id: "app", isAudible: true, isIgnored: false, objectIDs: [2])]
         )
 
         #expect(plan.deactivateItemIDs.isEmpty)
         #expect(plan.restartItemIDs == ["app"])
-        #expect(plan.activatePendingItemIDs.isEmpty)
+        #expect(plan.activateItemIDs.isEmpty)
     }
 
-    @Test("Planner activates pending items only when eligible")
-    func activatesEligiblePendingItems() {
+    @Test("Planner activates unprocessed audible and eligible pending items")
+    func activatesUnprocessedEligibleItems() {
         let plan = AudioProcessingPlanner.plan(
-            processingItemIDs: [],
-            pendingItemIDs: ["ready", "manual", "ignored", "empty"],
-            manuallyDisabledItemIDs: ["manual"],
+            processingItemIDs: ["already"],
+            pendingItemIDs: ["pending"],
             previousItems: [:],
             currentItems: [
-                appItem(id: "ready", isAudible: true, isIgnored: false, objectIDs: [1]),
-                appItem(id: "manual", isAudible: true, isIgnored: false, objectIDs: [2]),
-                appItem(id: "ignored", isAudible: true, isIgnored: true, objectIDs: [3]),
+                appItem(id: "already", isAudible: true, isIgnored: false, objectIDs: [1]),
+                appItem(id: "audible", isAudible: true, isIgnored: false, objectIDs: [2]),
+                appItem(id: "pending", isAudible: false, isIgnored: false, objectIDs: [3]),
+                appItem(id: "ignored", isAudible: true, isIgnored: true, objectIDs: [4]),
+                appItem(id: "silent", isAudible: false, isIgnored: false, objectIDs: [5]),
                 appItem(id: "empty", isAudible: true, isIgnored: false, objectIDs: [])
             ]
         )
 
         #expect(plan.deactivateItemIDs.isEmpty)
         #expect(plan.restartItemIDs.isEmpty)
-        #expect(plan.activatePendingItemIDs == ["ready"])
+        #expect(plan.activateItemIDs == ["audible", "pending"])
     }
 
     private func appItem(

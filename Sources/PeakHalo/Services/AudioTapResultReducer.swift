@@ -4,7 +4,6 @@ import Foundation
 struct AudioTapResultState: Equatable {
     var processingItemIDs: Set<String>
     var pendingItemIDs: Set<String>
-    var manuallyDisabledItemIDs: Set<String>
     var fallbackRoutedItemIDs: Set<String>
 }
 
@@ -45,13 +44,12 @@ enum AudioTapResultReducer {
         if enabling {
             nextState.processingItemIDs.insert(result.itemID)
             nextState.pendingItemIDs.remove(result.itemID)
-            nextState.manuallyDisabledItemIDs.remove(result.itemID)
             let usedFallback = nextState.fallbackRoutedItemIDs.remove(result.itemID) != nil
             return AudioTapResultReduction(
                 state: nextState,
                 message: usedFallback
                     ? .string("Selected output is unavailable. Using System Default.")
-                    : .string("Per-app audio processing is active."),
+                    : nil,
                 permissionDenied: false,
                 shouldResortItems: true
             )

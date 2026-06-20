@@ -3,14 +3,13 @@ import Foundation
 struct AudioProcessingPlan: Equatable {
     let deactivateItemIDs: [String]
     let restartItemIDs: [String]
-    let activatePendingItemIDs: [String]
+    let activateItemIDs: [String]
 }
 
 enum AudioProcessingPlanner {
     static func plan(
         processingItemIDs: Set<String>,
         pendingItemIDs: Set<String>,
-        manuallyDisabledItemIDs: Set<String>,
         previousItems: [String: AudioAppVolumeItem],
         currentItems: [AudioAppVolumeItem]
     ) -> AudioProcessingPlan {
@@ -36,12 +35,12 @@ enum AudioProcessingPlanner {
             }
         }
 
-        let activatePendingItemIDs = currentItems
+        let activateItemIDs = currentItems
             .filter { item in
-                pendingItemIDs.contains(item.id)
-                    && !manuallyDisabledItemIDs.contains(item.id)
+                !processingItemIDs.contains(item.id)
                     && !item.isIgnored
                     && !item.audioProcessObjectIDs.isEmpty
+                    && (item.isAudible || pendingItemIDs.contains(item.id))
             }
             .map(\.id)
             .sorted()
@@ -49,7 +48,7 @@ enum AudioProcessingPlanner {
         return AudioProcessingPlan(
             deactivateItemIDs: deactivateItemIDs,
             restartItemIDs: restartItemIDs,
-            activatePendingItemIDs: activatePendingItemIDs
+            activateItemIDs: activateItemIDs
         )
     }
 }

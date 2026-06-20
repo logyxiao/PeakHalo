@@ -12,14 +12,12 @@ struct AudioTapResultReducerTests {
             state: AudioTapResultState(
                 processingItemIDs: [],
                 pendingItemIDs: ["app"],
-                manuallyDisabledItemIDs: ["app"],
                 fallbackRoutedItemIDs: ["app"]
             )
         )
 
         #expect(reduction.state.processingItemIDs == ["app"])
         #expect(reduction.state.pendingItemIDs.isEmpty)
-        #expect(reduction.state.manuallyDisabledItemIDs.isEmpty)
         #expect(reduction.state.fallbackRoutedItemIDs.isEmpty)
         #expect(reduction.message == .string("Selected output is unavailable. Using System Default."))
         #expect(reduction.shouldResortItems)
@@ -34,7 +32,6 @@ struct AudioTapResultReducerTests {
             state: AudioTapResultState(
                 processingItemIDs: ["app"],
                 pendingItemIDs: [],
-                manuallyDisabledItemIDs: [],
                 fallbackRoutedItemIDs: []
             )
         )
@@ -57,7 +54,6 @@ struct AudioTapResultReducerTests {
             state: AudioTapResultState(
                 processingItemIDs: [],
                 pendingItemIDs: [],
-                manuallyDisabledItemIDs: [],
                 fallbackRoutedItemIDs: []
             )
         )

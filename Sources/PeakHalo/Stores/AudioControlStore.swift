@@ -24,7 +24,6 @@ final class AudioControlStore: ObservableObject {
     private var monitorTask: Task<Void, Never>?
     private var isProcessMonitoringActive = false
     private var pendingProcessingAppIDs = Set<String>()
-    private var manuallyDisabledProcessingAppIDs = Set<String>()
     private var fallbackRoutedAppIDs = Set<String>()
 
     var defaultOutputDevice: AudioOutputDevice? {
@@ -204,12 +203,7 @@ final class AudioControlStore: ObservableObject {
             item.isMuted = isMuted
         }
 
-        if isMuted, !processingAppIDs.contains(itemID) {
-            manuallyDisabledProcessingAppIDs.remove(itemID)
-            activateOrSwitchProcessing(itemID: itemID)
-        } else {
-            updateProcessingState(itemID: itemID)
-        }
+        updateProcessingState(itemID: itemID)
     }
 
     func setAppBoost(_ boost: AudioBoostLevel, itemID: String) {
@@ -277,7 +271,6 @@ final class AudioControlStore: ObservableObject {
             item.outputDeviceUID = routeIntent.primaryOutputDeviceUID
         }
 
-        manuallyDisabledProcessingAppIDs.remove(itemID)
         activateOrSwitchProcessing(itemID: itemID)
     }
 
@@ -309,23 +302,6 @@ final class AudioControlStore: ObservableObject {
 
     func isProcessingEnabled(itemID: String) -> Bool {
         processingAppIDs.contains(itemID)
-    }
-
-    func toggleProcessing(itemID: String) {
-        guard canControlAppAudio else {
-            showAppAudioPermissionMessage()
-            return
-        }
-
-        if processingAppIDs.contains(itemID) {
-            manuallyDisabledProcessingAppIDs.insert(itemID)
-            pendingProcessingAppIDs.remove(itemID)
-            deactivateProcessing(itemID: itemID)
-            return
-        }
-
-        manuallyDisabledProcessingAppIDs.remove(itemID)
-        activateOrSwitchProcessing(itemID: itemID)
     }
 
     func togglePinned(itemID: String) {
@@ -459,8 +435,12 @@ final class AudioControlStore: ObservableObject {
 
     private func updateProcessingState(itemID: String) {
         guard canControlAppAudio else { return }
-        guard processingAppIDs.contains(itemID),
-              let item = appItems.first(where: { $0.id == itemID }) else {
+        guard let item = appItems.first(where: { $0.id == itemID }) else { return }
+
+        guard processingAppIDs.contains(itemID) else {
+            if item.isAudible && !item.isIgnored {
+                activateOrSwitchProcessing(itemID: itemID)
+            }
             return
         }
 
@@ -633,14 +613,12 @@ final class AudioControlStore: ObservableObject {
             state: AudioTapResultState(
                 processingItemIDs: processingAppIDs,
                 pendingItemIDs: pendingProcessingAppIDs,
-                manuallyDisabledItemIDs: manuallyDisabledProcessingAppIDs,
                 fallbackRoutedItemIDs: fallbackRoutedAppIDs
             )
         )
 
         processingAppIDs = reduction.state.processingItemIDs
         pendingProcessingAppIDs = reduction.state.pendingItemIDs
-        manuallyDisabledProcessingAppIDs = reduction.state.manuallyDisabledItemIDs
         fallbackRoutedAppIDs = reduction.state.fallbackRoutedItemIDs
         lastMessage = reduction.message
 
@@ -704,7 +682,6 @@ final class AudioControlStore: ObservableObject {
         let plan = AudioProcessingPlanner.plan(
             processingItemIDs: processingAppIDs,
             pendingItemIDs: pendingProcessingAppIDs,
-            manuallyDisabledItemIDs: manuallyDisabledProcessingAppIDs,
             previousItems: previousItems,
             currentItems: currentItems
         )
@@ -715,7 +692,7 @@ final class AudioControlStore: ObservableObject {
         for itemID in plan.restartItemIDs {
             restartProcessing(itemID: itemID)
         }
-        for itemID in plan.activatePendingItemIDs {
+        for itemID in plan.activateItemIDs {
             activateOrSwitchProcessing(itemID: itemID)
         }
     }
