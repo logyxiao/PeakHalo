@@ -322,6 +322,11 @@ final class AudioControlStore: ObservableObject {
         applyCaptureSupportStatus(recordingPermission.refreshStatus())
     }
 
+    func requestAudioCapturePermission() {
+        recordingPermission.resetRequestSuppressionForUserRetry()
+        requestAudioCapturePermissionIfNeeded()
+    }
+
     func recheckAudioCapturePermission() {
         recordingPermission.recheckFromSettings { [weak self] status in
             guard let self else { return }

@@ -169,6 +169,13 @@ struct AudioControlsView: View {
             }
 
             HStack(spacing: 8) {
+                Button(languageStore.localizedString("Request Access")) {
+                    store.requestAudioCapturePermission()
+                }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(controlProgressColor)
+
                 Button(languageStore.localizedString("Open System Settings")) {
                     openAudioPrivacySettings()
                 }
